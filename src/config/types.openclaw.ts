@@ -234,6 +234,34 @@ export type OpenClawConfig = {
   mcp?: McpConfig;
   /** Network-level SSRF protection via an operator-managed forward proxy. */
   proxy?: ProxyConfig;
+  /** Pryva platform integration (native message pipeline). */
+  pryva?: PryvaConfig;
+};
+
+/**
+ * Pryva platform integration — configures the native Pryva message pipeline
+ * (Ear/Cortex/Mouth, flow tracing, telemetry, sanitization) that ships inside
+ * this OpenClaw fork. Flavor-agnostic: the same pipeline serves every flavor
+ * (smm, bb, …); flavor specifics live in the per-flavor extensions.
+ */
+export type PryvaConfig = {
+  /** Base URL of the Pryva backend, e.g. "http://127.0.0.1:8080". */
+  backendUrl?: string;
+  /** Platform/internal bearer token used to authenticate backend calls. */
+  internalToken?: string;
+  /** Native message pipeline toggle + tuning. */
+  pipeline?: {
+    /** Master switch. When true, the native pipeline runs on every turn. */
+    enabled?: boolean;
+    /** Skip the Ear analysis stage (inbound). */
+    disableEar?: boolean;
+    /** Skip the Cortex quality gate (outbound). */
+    disableCortex?: boolean;
+    /** Skip the Mouth polish stage (outbound). */
+    disableMouth?: boolean;
+    /** Skip the fast pre-Ear acknowledgement. */
+    disableFastAck?: boolean;
+  };
 };
 
 /** Config input shape accepted before model provider defaults are fully materialized. */
