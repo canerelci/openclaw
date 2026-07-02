@@ -48,8 +48,10 @@ export async function onMessageSending(
 
   // Cortex quality gate. Never cancel a deliberate send — media captions and
   // proactive notifications travel through this same hook; on "block" we prefer
-  // Cortex's rewrite and otherwise let the sanitized content pass.
-  if (!pipeline.cfg.pipeline.disableCortex && content.length > 10) {
+  // Cortex's rewrite and otherwise let the sanitized content pass. Skipped for
+  // short messages: canned acks ("Hemen bakıyorum…") were burning a ~7s LLM QA
+  // call on 16 characters — nothing that short needs a quality gate.
+  if (!pipeline.cfg.pipeline.disableCortex && content.length > 40) {
     const payload: Record<string, unknown> = {
       draft: content,
       original_message: original,
