@@ -853,6 +853,23 @@ export const OpenClawSchema = z
       })
       .strict()
       .optional(),
+    pryva: z
+      .object({
+        backendUrl: z.string().optional(),
+        internalToken: SecretInputSchema.optional().register(sensitive),
+        pipeline: z
+          .object({
+            enabled: z.boolean().optional(),
+            disableEar: z.boolean().optional(),
+            disableCortex: z.boolean().optional(),
+            disableMouth: z.boolean().optional(),
+            disableFastAck: z.boolean().optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((cfg, ctx) => {
