@@ -47,4 +47,7 @@ export function currentFlowId(pipeline: PryvaPipeline): string {
   return pipeline.ctxStore.findLatest()?.flowId ?? generateFlowId();
 }
 
-export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+export const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
