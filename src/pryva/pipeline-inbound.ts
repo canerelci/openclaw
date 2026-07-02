@@ -18,6 +18,34 @@ import { generateFlowId } from "./flow.js";
 import { sleep, type PryvaPipeline } from "./pipeline.js";
 import { currentTimeContext } from "./time.js";
 
+// Inbound dedup — REQUIRED, not an optimization. Two dispatch paths re-fire
+// message_received for the SAME message: (a) the plugin loads in more than one
+// runtime context, and (b) when the reply session is held by a slow prior turn,
+// the Telegram ingress spooler retries the SAME update on a backoff of up to
+// ~60s — each retry fires the hook again. Without this guard every retry minted
+// a fresh flow id and re-ran Ear (observed live: 5 duplicate flows + 5 Ear LLM
+// calls for one message). Keyed on channel:sender:content; the 5 min window
+// covers the full spool backoff.
+const DEDUP_WINDOW_MS = 5 * 60 * 1000;
+const recentInbound = new Map<string, number>();
+
+function seenRecently(key: string): boolean {
+  const now = Date.now();
+  if (recentInbound.size > 500) {
+    for (const [k, t] of recentInbound) {
+      if (now - t > DEDUP_WINDOW_MS) {
+        recentInbound.delete(k);
+      }
+    }
+  }
+  const prev = recentInbound.get(key);
+  if (prev !== undefined && now - prev < DEDUP_WINDOW_MS) {
+    return true;
+  }
+  recentInbound.set(key, now);
+  return false;
+}
+
 /** Run the Ear analysis stage and store the plan on the context. */
 async function runEar(pipeline: PryvaPipeline, entry: PipelineInboundContext): Promise<void> {
   entry.earStarted = true;
@@ -47,6 +75,13 @@ export async function onMessageReceived(
   const from = event?.from || "";
   const content = event?.content || "";
   if (!from && !content) {
+    return;
+  }
+
+  // Same message re-dispatched (spool retry / dual runtime context) → the first
+  // firing already minted the flow and ran Ear; the stored context serves the
+  // eventual agent turn. Skip everything.
+  if (content && seenRecently(`${channel}:${from}:${content}`)) {
     return;
   }
 

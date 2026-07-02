@@ -31,7 +31,8 @@ export function stripSentinelTokens(rawContent: string): string | null {
   }
   const stripped = rawContent
     .split("\n")
-    .map((line: string) => {
+    .map((rawLine: string) => {
+      let line = rawLine;
       let prev: string;
       do {
         prev = line;
