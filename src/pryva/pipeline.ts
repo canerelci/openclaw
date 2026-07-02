@@ -1,25 +1,28 @@
 /**
  * Pryva pipeline runtime state.
  *
- * Holds the resolved config, the per-conversation context store, and the
- * outbound flow handoff shared across all the native pipeline hooks. One
- * instance is created when the pipeline is registered (config-gated).
+ * Holds the resolved config + the per-conversation context store shared across
+ * the native pipeline hooks. One instance is created when the pipeline is
+ * registered (config-gated).
+ *
+ * Scope: the native pipeline owns the flavor-agnostic pipeline STAGES (Ear,
+ * Cortex, Mouth, outbound sanitization) and the FLOW TRACE / telemetry
+ * (flow_logs + usage). Conversation-message logging (the messages table /
+ * per-flavor history) stays in the per-flavor extensions so there is exactly one
+ * writer per concern and no double-logging.
  */
 
 import type { OpenClawConfig } from "../config/config.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { ResolvedPryvaConfig } from "./config.js";
 import { PipelineContextStore } from "./context.js";
-import { OutboundFlowHandoff, generateFlowId } from "./flow.js";
+import { generateFlowId } from "./flow.js";
 
 export type PryvaPipeline = {
   cfg: ResolvedPryvaConfig;
   timezone: string;
   ctxStore: PipelineContextStore;
-  handoff: OutboundFlowHandoff;
   log: ReturnType<typeof createSubsystemLogger>;
-  /** Keys whose outbound was already ingested by message_sent (agent_end dedup). */
-  messageSentKeys: Set<string>;
 };
 
 function resolveTimezone(openClawConfig: OpenClawConfig | undefined): string {
@@ -35,9 +38,7 @@ export function createPryvaPipeline(
     cfg,
     timezone: resolveTimezone(openClawConfig),
     ctxStore: new PipelineContextStore(),
-    handoff: new OutboundFlowHandoff(),
     log: createSubsystemLogger("pryva"),
-    messageSentKeys: new Set<string>(),
   };
 }
 

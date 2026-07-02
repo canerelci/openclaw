@@ -16,8 +16,6 @@ export type PipelineInboundContext = {
   originalMessage: string;
   earPlan: Record<string, unknown> | null;
   earStarted: boolean;
-  ackSent: string | null;
-  agentEndIngested: boolean;
   timestamp: number;
 };
 

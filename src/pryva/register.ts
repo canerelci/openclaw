@@ -11,7 +11,7 @@ import type { OpenClawConfig } from "../config/config.js";
 import type { OpenClawPluginApi } from "../plugins/types.js";
 import { resolvePryvaConfig } from "./config.js";
 import { onBeforePromptBuild, onMessageReceived } from "./pipeline-inbound.js";
-import { onMessageSending, onMessageSent } from "./pipeline-outbound.js";
+import { onMessageSending } from "./pipeline-outbound.js";
 import { onAfterToolCall, onAgentEnd, onLlmOutput } from "./pipeline-telemetry.js";
 import { createPryvaPipeline } from "./pipeline.js";
 
@@ -35,7 +35,6 @@ export function registerPryvaPipelineHooks(api: OpenClawPluginApi, cfg: OpenClaw
     priority: 10,
   });
   api.on("message_sending", (event, ctx) => onMessageSending(pipeline, event, ctx));
-  api.on("message_sent", (event, ctx) => onMessageSent(pipeline, event, ctx));
   api.on("agent_end", (event, ctx) => onAgentEnd(pipeline, event, ctx));
   api.on("llm_output", (event) => onLlmOutput(pipeline, event));
   api.on("after_tool_call", (event) => onAfterToolCall(pipeline, event));

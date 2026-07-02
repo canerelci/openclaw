@@ -1,8 +1,9 @@
 /**
- * Inbound pipeline hooks: message_received (mint flow, Ear analysis, ingest) and
+ * Inbound pipeline hooks: message_received (mint flow id, run Ear analysis) and
  * before_prompt_build (inject current time + Ear action plan). Flavor-agnostic —
  * flavor-specific prompt context (brand kit, identity, persona) is injected by
- * the per-flavor extensions in their own before_prompt_build hooks.
+ * the per-flavor extensions in their own before_prompt_build hooks, and
+ * conversation-message logging stays in those extensions too.
  */
 
 import type {
@@ -16,39 +17,6 @@ import type { PipelineInboundContext } from "./context.js";
 import { generateFlowId } from "./flow.js";
 import { sleep, type PryvaPipeline } from "./pipeline.js";
 import { currentTimeContext } from "./time.js";
-
-/** Ingest a message into the base conversation log so the flow trace has it. */
-async function ingest(
-  pipeline: PryvaPipeline,
-  direction: "inbound" | "outbound",
-  params: {
-    channel: string;
-    from: string;
-    to: string;
-    content: string;
-    conversationId: string | null;
-    flowId: string;
-    channelMessageId?: string | null;
-  },
-): Promise<void> {
-  await pryvaFetch(
-    pipeline.cfg,
-    "POST",
-    "/messages/ingest",
-    {
-      channel: params.channel,
-      direction,
-      sender_id: direction === "inbound" ? params.from : "self",
-      recipient_id: direction === "inbound" ? "self" : params.to,
-      content: params.content,
-      conversation_id: params.conversationId,
-      channel_message_id: params.channelMessageId ?? null,
-      timestamp: new Date().toISOString(),
-      metadata: { openclaw_channel: params.channel, flow_id: params.flowId },
-    },
-    { flowId: params.flowId },
-  );
-}
 
 /** Run the Ear analysis stage and store the plan on the context. */
 async function runEar(pipeline: PryvaPipeline, entry: PipelineInboundContext): Promise<void> {
@@ -94,33 +62,12 @@ export async function onMessageReceived(
     originalMessage: content,
     earPlan: null,
     earStarted: false,
-    ackSent: null,
-    agentEndIngested: false,
     timestamp: Date.now(),
   };
   pipeline.ctxStore.set(key, entry);
-  pipeline.messageSentKeys.delete(key);
-  pipeline.ctxStore.cleanupStale((k) => pipeline.messageSentKeys.delete(k));
-  pipeline.handoff.cleanup();
+  pipeline.ctxStore.cleanupStale();
 
-  // Ingest inbound for the conversation log / flow trace (best-effort).
-  if (content) {
-    await ingest(pipeline, "inbound", {
-      channel,
-      from,
-      to: "self",
-      content,
-      conversationId,
-      flowId,
-      channelMessageId:
-        (event?.metadata?.messageId as string | undefined) ??
-        (event?.metadata?.channel_message_id as string | undefined) ??
-        null,
-    });
-  }
-
-  // Ear analysis (async, non-blocking to the user; awaited so before_prompt_build
-  // can pick up the plan for this same turn).
+  // Ear analysis (awaited so before_prompt_build can pick up the plan this turn).
   if (content && !pipeline.cfg.pipeline.disableEar) {
     try {
       await runEar(pipeline, entry);

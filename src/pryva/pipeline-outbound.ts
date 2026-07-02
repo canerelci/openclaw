@@ -1,15 +1,14 @@
 /**
- * Outbound pipeline hooks: message_sending (sanitize → Cortex quality gate →
- * Mouth polish) and message_sent (ingest the delivered message for the flow
- * trace). Flavor-agnostic; the backend Cortex/Mouth stages resolve any
- * flavor/recipient specifics.
+ * Outbound pipeline hook: message_sending (sanitize → Cortex quality gate →
+ * Mouth polish). Flavor-agnostic; the backend Cortex/Mouth stages resolve any
+ * flavor/recipient specifics. Each stage is attributed to the current turn's
+ * flow id so the whole outbound path is traceable.
  */
 
 import type {
   PluginHookMessageContext,
   PluginHookMessageSendingEvent,
   PluginHookMessageSendingResult,
-  PluginHookMessageSentEvent,
 } from "../plugins/types.js";
 import { pryvaFetch } from "./backend.js";
 import type { PipelineInboundContext } from "./context.js";
@@ -45,8 +44,6 @@ export async function onMessageSending(
   const to = event?.to;
   const matched = matchContext(pipeline, to, channel);
   const flowId = matched?.flowId || generateFlowId();
-  pipeline.handoff.set(channel, to, flowId);
-
   const original = matched?.originalMessage || "";
 
   // Cortex quality gate. Never cancel a deliberate send — media captions and
@@ -105,53 +102,4 @@ export async function onMessageSending(
   if (content !== event.content) {
     return { content };
   }
-}
-
-export async function onMessageSent(
-  pipeline: PryvaPipeline,
-  event: PluginHookMessageSentEvent,
-  ctx: PluginHookMessageContext,
-): Promise<void> {
-  const channel = ctx?.channelId || "unknown";
-  const to = event?.to || "";
-  const content = event?.content || "";
-  if (!to && !content) {
-    return;
-  }
-
-  let flowId = pipeline.handoff.take(channel, to);
-  if (!flowId) {
-    for (const [key, ictx] of pipeline.ctxStore.entries()) {
-      if (ictx.from === to && ictx.channel === channel) {
-        flowId = ictx.flowId;
-        pipeline.messageSentKeys.add(key);
-        break;
-      }
-    }
-  }
-  if (!flowId) {
-    flowId = generateFlowId();
-  }
-
-  await pryvaFetch(
-    pipeline.cfg,
-    "POST",
-    "/messages/ingest",
-    {
-      channel,
-      direction: "outbound",
-      sender_id: "self",
-      recipient_id: to,
-      content,
-      status: !event?.success ? "failed" : "sent",
-      timestamp: new Date().toISOString(),
-      metadata: {
-        openclaw_channel: channel,
-        flow_id: flowId,
-        success: event?.success,
-        error: event?.error ?? null,
-      },
-    },
-    { flowId },
-  );
 }

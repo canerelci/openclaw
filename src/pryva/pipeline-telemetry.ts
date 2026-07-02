@@ -1,8 +1,9 @@
 /**
  * Telemetry + flow-trace hooks: llm_output (log every LLM turn + token usage),
- * after_tool_call (log every tool call), agent_end (capture auto-replies for the
+ * after_tool_call (log every tool call), agent_end (log a session error to the
  * flow trace). Every LLM/tool hop is attributed to the current turn's flow id so
- * cost + latency are traceable end-to-end.
+ * cost + latency are traceable end-to-end. Conversation-message logging is left
+ * to the per-flavor extensions (single writer, no double-logging).
  */
 
 import type {
@@ -12,9 +13,6 @@ import type {
   PluginHookLlmOutputEvent,
 } from "../plugins/types.js";
 import { pryvaFetch } from "./backend.js";
-import type { PipelineInboundContext } from "./context.js";
-import { extractLastAssistantTurn } from "./extract.js";
-import { generateFlowId } from "./flow.js";
 import { currentFlowId, type PryvaPipeline } from "./pipeline.js";
 
 export async function onLlmOutput(
@@ -103,80 +101,26 @@ export async function onAgentEnd(
   event: PluginHookAgentEndEvent,
   _ctx: PluginHookAgentContext,
 ): Promise<void> {
-  // Match the most recent inbound turn.
-  let matchedKey: string | null = null;
-  let matched: PipelineInboundContext | null = null;
-  let bestTs = 0;
-  for (const [key, ictx] of pipeline.ctxStore.entries()) {
-    if (ictx.timestamp > bestTs && Date.now() - ictx.timestamp < 300_000) {
-      bestTs = ictx.timestamp;
-      matchedKey = key;
-      matched = ictx;
-    }
-  }
-  if (!matched || !matchedKey) {
+  // Only record session failures on the flow trace. Successful auto-reply
+  // capture (conversation logging) is owned by the per-flavor extensions.
+  if (event?.success) {
     return;
   }
-  const turn = matched;
-  // If message_sent already ingested this turn's outbound, don't double-count.
-  if (pipeline.messageSentKeys.has(matchedKey)) {
-    pipeline.messageSentKeys.delete(matchedKey);
-    return;
-  }
-  if (matched.agentEndIngested) {
-    return;
-  }
-  matched.agentEndIngested = true;
-
-  const flowId = matched.flowId || generateFlowId();
-
-  if (!event?.success) {
-    await pryvaFetch(
-      pipeline.cfg,
-      "POST",
-      "/flows/log-step",
-      {
-        flow_id: flowId,
-        step_name: "ocw_session_error",
-        step_type: "internal",
-        source: "openclaw",
-        output_text: event?.error || "Agent session failed",
-        status: "error",
-        error: event?.error || "Unknown error",
-        latency_ms: event?.durationMs ?? null,
-      },
-      { flowId },
-    );
-    return;
-  }
-
-  const replies = extractLastAssistantTurn(event?.messages);
-  await Promise.all(
-    replies.map((reply, i) =>
-      pryvaFetch(
-        pipeline.cfg,
-        "POST",
-        "/messages/ingest",
-        {
-          channel: turn.channel,
-          direction: "outbound",
-          sender_id: "self",
-          recipient_id: turn.from,
-          content: reply,
-          conversation_id: turn.conversationId,
-          status: "sent",
-          timestamp: new Date().toISOString(),
-          metadata: {
-            source: "agent_end_hook",
-            msg_index: i,
-            msg_total: replies.length,
-            openclaw_channel: turn.channel,
-            flow_id: flowId,
-          },
-        },
-        { flowId },
-      ),
-    ),
+  const flowId = currentFlowId(pipeline);
+  await pryvaFetch(
+    pipeline.cfg,
+    "POST",
+    "/flows/log-step",
+    {
+      flow_id: flowId,
+      step_name: "ocw_session_error",
+      step_type: "internal",
+      source: "openclaw",
+      output_text: event?.error || "Agent session failed",
+      status: "error",
+      error: event?.error || "Unknown error",
+      latency_ms: event?.durationMs ?? null,
+    },
+    { flowId },
   );
-  pipeline.log.debug(`captured ${replies.length} auto-reply(ies) via agent_end [${flowId}]`);
 }
