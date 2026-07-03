@@ -31,3 +31,15 @@ export function fastAckText(content: string): string | null {
   const pool = TR_HINT_RE.test(s) ? ACK_TR : ACK_EN;
   return pool[Math.floor(Math.random() * pool.length)];
 }
+
+/**
+ * Is this text one of our canned fast-acks? `message_sending` uses this to skip
+ * the Cortex/Mouth quality gate for an ack (D3) — the ack is a pre-approved
+ * instant greeting; QA-ing it would burn an LLM call and add latency to the one
+ * message meant to be instant. Membership check (not a regex) so it stays exact
+ * and robust to the canned pools changing.
+ */
+export function isFastAck(content: string): boolean {
+  const s = (content || "").trim();
+  return s.length > 0 && (ACK_TR.includes(s) || ACK_EN.includes(s));
+}
