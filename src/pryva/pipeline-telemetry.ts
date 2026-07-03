@@ -12,10 +12,38 @@ import type {
   PluginHookAfterToolCallEvent,
   PluginHookAgentContext,
   PluginHookAgentEndEvent,
+  PluginHookLlmInputEvent,
   PluginHookLlmOutputEvent,
 } from "../plugins/types.js";
 import { pryvaFetch } from "./backend.js";
 import { logFlowStep, type PryvaPipeline } from "./pipeline.js";
+
+// runId → the INPUT captured from the llm_input hook (fires just before llm_output for the same
+// run). The llm_output event does NOT carry the prompt, so we stash the input here and consume it
+// in onLlmOutput to show the full input on every main-agent LLM call. Bounded to avoid unbounded
+// growth if an output somehow never fires.
+type CapturedLlmInput = { prompt: string; systemPrompt?: string; historyCount: number };
+const pendingLlmInput = new Map<string, CapturedLlmInput>();
+const MAX_PENDING_LLM_INPUT = 512;
+
+export async function onLlmInput(
+  _pipeline: PryvaPipeline,
+  event: PluginHookLlmInputEvent,
+): Promise<void> {
+  const runId = event?.runId;
+  if (!runId) {
+    return;
+  }
+  // Crude cap: if outputs stopped consuming (shouldn't happen), drop the oldest wholesale.
+  if (pendingLlmInput.size > MAX_PENDING_LLM_INPUT) {
+    pendingLlmInput.clear();
+  }
+  pendingLlmInput.set(runId, {
+    prompt: typeof event?.prompt === "string" ? event.prompt : "",
+    systemPrompt: typeof event?.systemPrompt === "string" ? event.systemPrompt : undefined,
+    historyCount: Array.isArray(event?.historyMessages) ? event.historyMessages.length : 0,
+  });
+}
 
 // Full transparency: keep the WHOLE input + output on the flow step so the Logs
 // magnifier shows exactly what went into and came out of every model call. Caps
@@ -31,11 +59,20 @@ export async function onLlmOutput(
   const usage = event?.usage;
   const model = event?.model || "unknown";
   const provider = event?.provider || "unknown";
-  // INPUT: the prompt that produced this turn (the only input the hook exposes —
-  // system prompt + history live in the session JSONL, surfaced as "Session turns").
-  const inputText =
-    typeof event?.prompt === "string" && event.prompt.trim()
-      ? event.prompt.slice(0, LLM_INPUT_CAP)
+  // INPUT: consume what the llm_input hook stashed for this run (the llm_output event itself
+  // carries no prompt). Falls back to event.prompt if ever populated. systemPrompt is kept too so
+  // the detail view shows the FULL input (system + user), not just the user line.
+  const captured = event?.runId ? pendingLlmInput.get(event.runId) : undefined;
+  if (event?.runId) {
+    pendingLlmInput.delete(event.runId);
+  }
+  const promptText =
+    (captured?.prompt && captured.prompt.trim() ? captured.prompt : null) ??
+    (typeof event?.prompt === "string" && event.prompt.trim() ? event.prompt : null);
+  const inputText = promptText ? promptText.slice(0, LLM_INPUT_CAP) : null;
+  const systemPrompt =
+    captured?.systemPrompt && captured.systemPrompt.trim()
+      ? captured.systemPrompt.slice(0, LLM_INPUT_CAP)
       : null;
   // OUTPUT: the full assistant text, not a 500-char teaser.
   const outputFull = Array.isArray(event?.assistantTexts)
@@ -46,6 +83,14 @@ export async function onLlmOutput(
   // level); the actual chain-of-thought for the main agent is in the session
   // JSONL turns. Record the effort level so the UI can show the mode at least.
   const reasoningEffort = event?.reasoningEffort ?? null;
+  // Structured prompt (system + user) so the LlmDetailPanel renders it uniformly with the
+  // backend internal-LLM records (which use the same {role, content}[] shape).
+  const promptMessages = inputText
+    ? [
+        ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
+        { role: "user", content: inputText },
+      ]
+    : undefined;
 
   // Structural attribution: the LLM turn's own runId/sessionId resolve to its
   // flow; unbound → fl-unbound + WARN (never a re-minted fake id).
@@ -65,7 +110,7 @@ export async function onLlmOutput(
         reasoning_effort: reasoningEffort,
         // Structured prompt/response so the LlmDetailPanel renders them uniformly
         // (same shape the backend internal-LLM records use).
-        prompt: inputText ? [{ role: "user", content: inputText }] : undefined,
+        prompt: promptMessages,
         response: outputText,
       },
     },
@@ -90,7 +135,7 @@ export async function onLlmOutput(
           reasoning_effort: reasoningEffort,
           // Full input + output so the LLM Usage tab detail shows both, not just
           // the response (main-agent rows previously carried response only).
-          prompt: inputText ? [{ role: "user", content: inputText }] : undefined,
+          prompt: promptMessages,
           response: outputText,
         },
       },
