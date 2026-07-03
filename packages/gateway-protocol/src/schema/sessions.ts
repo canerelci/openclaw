@@ -263,6 +263,11 @@ export const SessionsSendParamsSchema = Type.Object(
     attachments: Type.Optional(Type.Array(Type.Unknown())),
     timeoutMs: Type.Optional(Type.Integer({ minimum: 0 })),
     idempotencyKey: Type.Optional(NonEmptyString),
+    // Pryva flawless-flow (D5): re-enter an existing flow instead of minting a new
+    // one, so an NCW completion / backend continuation is a CONTINUATION of the
+    // parent flow. Bound at before_agent_start via the FlowRegistry.
+    pryvaFlowId: Type.Optional(NonEmptyString),
+    pryvaFlowSource: Type.Optional(NonEmptyString),
   },
   { additionalProperties: false },
 );

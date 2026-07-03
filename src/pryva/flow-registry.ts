@@ -83,6 +83,13 @@ export class FlowRegistry {
   private readonly pendingExternal = new Map<string, PendingExternal>();
   /** runId → forced source, consumed at before_agent_start (D6 followup drain). */
   private readonly sourceHints = new Map<string, FlowSource>();
+  /**
+   * sessionKey → externally-supplied flow, consumed at before_agent_start (D5).
+   * Used when the caller knows the SESSION but not the runId yet — e.g. a
+   * gateway `sessions.send`/`sessions.steer` carrying `pryvaFlowId`: the run is
+   * started for that session and its before_agent_start re-enters the flow.
+   */
+  private readonly pendingExternalBySession = new Map<string, PendingExternal>();
   private lastGc = Date.now();
 
   /**
@@ -128,6 +135,27 @@ export class FlowRegistry {
     jobId?: string,
   ): void {
     this.pendingExternal.set(runId, { flowId, source, parentFlowId, agent, jobId });
+  }
+
+  /** Attach an external flow keyed by SESSION (D5) — for callers that know the
+   *  session but not the runId (gateway sessions.send/steer with pryvaFlowId). */
+  attachExternalFlowBySession(
+    sessionKey: string,
+    flowId: string,
+    source: FlowSource,
+    parentFlowId?: string,
+    agent?: string,
+    jobId?: string,
+  ): void {
+    this.pendingExternalBySession.set(sessionKey, { flowId, source, parentFlowId, agent, jobId });
+  }
+
+  /** Take + clear a session-keyed external-flow attachment, if any (idempotent). */
+  consumeExternalFlowBySession(sessionKey: string | undefined): PendingExternal | undefined {
+    if (!sessionKey) return undefined;
+    const p = this.pendingExternalBySession.get(sessionKey);
+    if (p) this.pendingExternalBySession.delete(sessionKey);
+    return p;
   }
 
   /** Force the source a fresh run will be minted with (D6 followup drain). */
@@ -243,6 +271,14 @@ export type PryvaFlowRegistryGlobal = {
   getFlowForSession(sessionKey: string): { flowId: string; source: FlowSource } | null;
   getFlowForRun(runId: string): FlowBinding | null;
   bindExternalFlow(runId: string, flowId: string, source: FlowSource, parentFlowId?: string): void;
+  /** D5: attach an external flow by SESSION so a gateway sessions.send/steer run
+   *  re-enters that flow. Consumed at before_agent_start. */
+  attachExternalFlowBySession(
+    sessionKey: string,
+    flowId: string,
+    source: FlowSource,
+    parentFlowId?: string,
+  ): void;
 };
 
 const GLOBAL_KEY = "__pryvaFlowRegistry";
@@ -259,6 +295,8 @@ export function publishFlowRegistry(registry: FlowRegistry): PryvaFlowRegistryGl
     getFlowForRun: (runId: string) => registry.getFlowForRun(runId),
     bindExternalFlow: (runId, flowId, source, parentFlowId) =>
       registry.bindExternalFlow(runId, flowId, source, parentFlowId),
+    attachExternalFlowBySession: (sessionKey, flowId, source, parentFlowId) =>
+      registry.attachExternalFlowBySession(sessionKey, flowId, source, parentFlowId),
   };
   try {
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = surface;
