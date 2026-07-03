@@ -254,6 +254,20 @@ export async function onMessageReceived(
     void deliverFastAck(pipeline, { to: from, content: ack, channel });
   }
 
+  // D6 (safe steering): let the backend abort any in-flight NCW work this message invalidates
+  // (e.g. "make it tiktok not instagram" while an instagram plan is generating). Fire-and-forget —
+  // the backend is a cheap DB-gated no-op when nothing is running, and this NEVER blocks the turn
+  // or changes queue routing (the message still steers into the active run via OCW's queue).
+  if (content) {
+    void pryvaFetch(
+      pipeline.cfg,
+      "POST",
+      "/pipeline/steer-check",
+      { session_key: sessionKey, new_message: content },
+      { flowId },
+    ).catch(() => {});
+  }
+
   // flow_start finalizer (C2): the flow is ALREADY bound structurally (above), so
   // nothing is orphaned during the Ear window. We log the flow_start STEP after
   // Ear so `source` reflects is_owner — but ALWAYS log it (finally), even if Ear
