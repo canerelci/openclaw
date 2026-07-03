@@ -17,7 +17,12 @@ import { createSubsystemLogger } from "../logging/subsystem.js";
 import { pryvaFetch } from "./backend.js";
 import type { ResolvedPryvaConfig } from "./config.js";
 import { PipelineContextStore } from "./context.js";
-import { FlowRegistry, UNBOUND_FLOW_ID, publishFlowRegistry } from "./flow-registry.js";
+import type { FlowRegistry } from "./flow-registry.js";
+import {
+  UNBOUND_FLOW_ID,
+  getOrCreateSharedFlowRegistry,
+  publishFlowRegistry,
+} from "./flow-registry.js";
 
 export type PryvaPipeline = {
   cfg: ResolvedPryvaConfig;
@@ -44,7 +49,10 @@ export function createPryvaPipeline(
   cfg: ResolvedPryvaConfig,
   openClawConfig: OpenClawConfig | undefined,
 ): PryvaPipeline {
-  const registry = new FlowRegistry();
+  // ONE registry for the whole process, reused across plugin hot-reloads — a
+  // fresh registry per reload would orphan in-flight runs' bindings → fl-unbound
+  // (see getOrCreateSharedFlowRegistry). Never `new FlowRegistry()` here.
+  const registry = getOrCreateSharedFlowRegistry();
   // Publish the read-only C1 surface on globalThis so per-flavor extensions can
   // READ the flow for a session (and never mint their own id — D2).
   publishFlowRegistry(registry);

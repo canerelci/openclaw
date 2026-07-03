@@ -306,6 +306,39 @@ export type PryvaFlowRegistryGlobal = {
 };
 
 const GLOBAL_KEY = "__pryvaFlowRegistry";
+const INSTANCE_KEY = "__pryvaFlowRegistryInstance";
+
+/**
+ * Get the process-wide FlowRegistry, creating it once and REUSING it across
+ * plugin hot-reloads.
+ *
+ * WHY THIS MUST BE A SINGLETON: `registerPryvaPipelineHooks()` runs on every
+ * plugin (re)registration, and there are SEVERAL at boot as the entrypoint
+ * writes config (apiToken, hooks, model, …), each triggering a hot-reload. A
+ * fresh `new FlowRegistry()` per reload silently DROPS the runId→flow bindings
+ * of any in-flight run: e.g. the first-boot identity-bootstrap turn binds its
+ * run in registry A at before_agent_start, a reload then swaps in an empty
+ * registry B, and the run's later after_tool_call / llm_output telemetry
+ * resolves in B → NO binding → logged to `fl-unbound` (the D1/D8 alarm). Keeping
+ * ONE registry for the whole process makes bindings survive reloads.
+ *
+ * Stored on globalThis (survives even a full module re-eval) and duck-typed on
+ * read so a re-imported module's differing class identity can't defeat reuse.
+ */
+export function getOrCreateSharedFlowRegistry(): FlowRegistry {
+  const g = globalThis as Record<string, unknown>;
+  const existing = g[INSTANCE_KEY] as FlowRegistry | undefined;
+  if (existing && typeof existing.getFlowForRun === "function") {
+    return existing;
+  }
+  const registry = new FlowRegistry();
+  try {
+    g[INSTANCE_KEY] = registry;
+  } catch {
+    // locked-down runtime — fall back to this per-call instance (best effort).
+  }
+  return registry;
+}
 
 /**
  * Publish a read-only view of the registry on globalThis so per-flavor extensions
