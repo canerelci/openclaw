@@ -10,7 +10,7 @@
 import type { OpenClawConfig } from "../config/config.js";
 import type { OpenClawPluginApi } from "../plugins/types.js";
 import { resolvePryvaConfig } from "./config.js";
-import { onBeforePromptBuild, onMessageReceived } from "./pipeline-inbound.js";
+import { onBeforeAgentStart, onBeforePromptBuild, onMessageReceived } from "./pipeline-inbound.js";
 import { onMessageSending } from "./pipeline-outbound.js";
 import { onAfterToolCall, onAgentEnd, onLlmOutput } from "./pipeline-telemetry.js";
 import { createPryvaPipeline } from "./pipeline.js";
@@ -29,6 +29,13 @@ export function registerPryvaPipelineHooks(api: OpenClawPluginApi, cfg: OpenClaw
   const pipeline = createPryvaPipeline(resolved, cfg);
 
   api.on("message_received", (event, ctx) => onMessageReceived(pipeline, event, ctx));
+  // before_agent_start is the second mint point (D1): it binds every
+  // non-message-triggered run (heartbeat/cron/system/followup) to a flow,
+  // consumes external-flow attachments (D5) and source hints (D6), and
+  // race-safe-bridges message-triggered runs. Idempotent across its multiple
+  // fires per run. (Legacy hook, but it is the single earliest per-run point
+  // with the full structural ctx — runId + sessionKey + trigger.)
+  api.on("before_agent_start", (event, ctx) => onBeforeAgentStart(pipeline, event, ctx));
   // Priority 10 so the native time/Ear context is prepended ahead of flavor
   // extensions' own before_prompt_build injections.
   api.on("before_prompt_build", (event) => onBeforePromptBuild(pipeline, event), {

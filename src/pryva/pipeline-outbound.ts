@@ -1,8 +1,11 @@
 /**
  * Outbound pipeline hook: message_sending (sanitize → Cortex quality gate →
  * Mouth polish). Flavor-agnostic; the backend Cortex/Mouth stages resolve any
- * flavor/recipient specifics. Each stage is attributed to the current turn's
- * flow id so the whole outbound path is traceable.
+ * flavor/recipient specifics. Each stage is attributed STRUCTURALLY to the
+ * message's flow — resolved from the outbound session's sessionKey (the same
+ * value message_received bound), never by heuristic. message_sending carries no
+ * runId on this fork, so sessionKey is the key; an unbound outbound surfaces as
+ * `fl-unbound` + WARN rather than a re-minted fake id.
  */
 
 import type {
@@ -12,11 +15,16 @@ import type {
 } from "../plugins/types.js";
 import { pryvaFetch } from "./backend.js";
 import type { PipelineInboundContext } from "./context.js";
-import { generateFlowId } from "./flow.js";
+import { UNBOUND_FLOW_ID } from "./flow-registry.js";
 import type { PryvaPipeline } from "./pipeline.js";
 import { baseStripOutbound, guardRoleBreak } from "./sanitize.js";
 
-function matchContext(
+/**
+ * Find the inbound context for an outbound recipient — USED ONLY to fetch the
+ * Ear plan + original message text for Cortex/Mouth context, NEVER for flow
+ * attribution (flow identity is resolved structurally from sessionKey below).
+ */
+function matchInboundContext(
   pipeline: PryvaPipeline,
   to: string | undefined,
   channelId: string | undefined,
@@ -42,9 +50,21 @@ export async function onMessageSending(
 
   const channel = ctx?.channelId;
   const to = event?.to;
-  const matched = matchContext(pipeline, to, channel);
-  const flowId = matched?.flowId || generateFlowId();
+  const sessionKey = ctx?.sessionKey;
+  const matched = matchInboundContext(pipeline, to, channel);
   const original = matched?.originalMessage || "";
+  const earPlan = matched?.earPlan;
+
+  // Structural flow attribution. message_sending has no runId on this fork, so
+  // resolve via sessionKey (the message's flow, bound at message_received). If
+  // nothing binds, use the reserved fl-unbound id + WARN — never re-mint.
+  const binding = pipeline.registry.resolve(undefined, undefined, sessionKey);
+  const flowId = binding?.flowId ?? UNBOUND_FLOW_ID;
+  if (!binding) {
+    pipeline.log.warn(
+      `outbound unbound: no flow for session=${sessionKey ?? "?"} to=${to ?? "?"} [${flowId}]`,
+    );
+  }
 
   // Cortex quality gate. Never cancel a deliberate send — media captions and
   // proactive notifications travel through this same hook; on "block" we prefer
@@ -58,7 +78,6 @@ export async function onMessageSending(
       channel: channel ?? "unknown",
       recipient_id: to ?? null,
     };
-    const earPlan = matched?.earPlan;
     if (earPlan) {
       payload.intent = earPlan.intent;
       payload.key_points = earPlan.key_points;
@@ -82,7 +101,6 @@ export async function onMessageSending(
     /[|#*`[\]{}]/.test(content) ||
     /\b[0-9a-f]{8}-[0-9a-f]{4}\b/i.test(content);
   if (!pipeline.cfg.pipeline.disableMouth && needsMouth) {
-    const earPlan = matched?.earPlan;
     const result = (await pryvaFetch(
       pipeline.cfg,
       "POST",
