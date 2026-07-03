@@ -323,9 +323,29 @@ export async function onBeforeAgentStart(
   const channel = ctx?.channel;
   const sender = ctx?.senderId;
 
+  // 1b. External flow via ENV (D4 internal chat / any backend-driven `openclaw agent --local`
+  //     subprocess): the backend sets PRYVA_FLOW_ID (+ PRYVA_FLOW_SOURCE) in the subprocess env so
+  //     this run RE-ENTERS that flow instead of minting a new one. CONSUME-ONCE (delete after read)
+  //     so at most one run per process can pick it up — the long-lived gateway process never has
+  //     these set (verified: not in the container/supervisor env), so this only ever fires for a
+  //     backend-spawned local subprocess that carries exactly one run.
+  const envFlowId = process.env.PRYVA_FLOW_ID;
+  if (envFlowId) {
+    delete process.env.PRYVA_FLOW_ID;
+    const envSource = (process.env.PRYVA_FLOW_SOURCE as FlowSource) || "internal_chat";
+    delete process.env.PRYVA_FLOW_SOURCE;
+    pipeline.registry.bindFlow(envFlowId, envSource, { runId, sessionKey, sessionId });
+    logFlowResume(pipeline, envFlowId, envSource, { runId, sessionKey });
+    return;
+  }
+
   // 2. External flow attached (D5 NCW continuation): bind the EXISTING parent
   //    flow to this run and log a flow_resume — never a new flow (invariant I4).
-  const external = pipeline.registry.consumeExternalFlow(runId);
+  //    Runs started via gateway sessions.send/steer carrying pryvaFlowId attach
+  //    it by SESSION (runId unknown at call time), so fall through to that map.
+  const external =
+    pipeline.registry.consumeExternalFlow(runId) ??
+    pipeline.registry.consumeExternalFlowBySession(sessionKey);
   if (external) {
     pipeline.registry.bindFlow(external.flowId, external.source, {
       runId,

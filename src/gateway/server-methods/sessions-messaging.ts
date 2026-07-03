@@ -214,6 +214,30 @@ async function handleSessionSend(
     respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, `session not found: ${key}`));
     return;
   }
+  // Pryva flawless-flow (D5): if the caller passed pryvaFlowId, attach it to this SESSION so the
+  // run's before_agent_start re-enters that flow (flow_resume) instead of minting a new one. The
+  // runId is unknown here (the run hasn't started), so we key by session. Read-only global surface
+  // published by the pryva-pipeline plugin; a no-op if that plugin isn't loaded.
+  const pryvaFlowId = (p as { pryvaFlowId?: string }).pryvaFlowId;
+  if (pryvaFlowId) {
+    try {
+      const reg = (globalThis as Record<string, unknown>).__pryvaFlowRegistry as
+        | {
+            attachExternalFlowBySession?: (
+              sessionKey: string,
+              flowId: string,
+              source: string,
+              parentFlowId?: string,
+            ) => void;
+          }
+        | undefined;
+      const src = (p as { pryvaFlowSource?: string }).pryvaFlowSource || "ncw_completion";
+      reg?.attachExternalFlowBySession?.(canonicalKey, pryvaFlowId, src, pryvaFlowId);
+    } catch {
+      /* flow attach is best-effort; never fail a send on it */
+    }
+  }
+
   let sendAcked = false;
   let sendPayload: unknown;
   let sendCached = false;
