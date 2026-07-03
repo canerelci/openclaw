@@ -90,6 +90,11 @@ export class FlowRegistry {
    * started for that session and its before_agent_start re-enters the flow.
    */
   private readonly pendingExternalBySession = new Map<string, PendingExternal>();
+  /** sessionKey → forced source (+ parent) for the next run on that session (D6 followup defer). */
+  private readonly pendingSourceHintBySession = new Map<
+    string,
+    { source: FlowSource; parentFlowId?: string }
+  >();
   private lastGc = Date.now();
 
   /**
@@ -161,6 +166,23 @@ export class FlowRegistry {
   /** Force the source a fresh run will be minted with (D6 followup drain). */
   setSourceHint(runId: string, source: FlowSource): void {
     this.sourceHints.set(runId, source);
+  }
+
+  /** Force the source (+ parent flow) a fresh run for a SESSION will be minted with (D6): when the
+   *  queue defers an unrelated message as a followup, the NEXT run on that session must mint a NEW
+   *  flow tagged `followup` (with the parent flow it was deferred behind) — NOT fold into the
+   *  parent via the session bridge. Consumed at before_agent_start ahead of the bridge. */
+  setSourceHintBySession(sessionKey: string, source: FlowSource, parentFlowId?: string): void {
+    this.pendingSourceHintBySession.set(sessionKey, { source, parentFlowId });
+  }
+
+  consumeSourceHintBySession(
+    sessionKey: string | undefined,
+  ): { source: FlowSource; parentFlowId?: string } | undefined {
+    if (!sessionKey) return undefined;
+    const h = this.pendingSourceHintBySession.get(sessionKey);
+    if (h) this.pendingSourceHintBySession.delete(sessionKey);
+    return h;
   }
 
   /** Take + clear a pending external-flow attachment, if any (idempotent). */
@@ -279,6 +301,8 @@ export type PryvaFlowRegistryGlobal = {
     source: FlowSource,
     parentFlowId?: string,
   ): void;
+  /** D6: tag the next run on this session as a `followup` (deferred behind parentFlowId). */
+  setSourceHintBySession(sessionKey: string, source: FlowSource, parentFlowId?: string): void;
 };
 
 const GLOBAL_KEY = "__pryvaFlowRegistry";
@@ -297,6 +321,8 @@ export function publishFlowRegistry(registry: FlowRegistry): PryvaFlowRegistryGl
       registry.bindExternalFlow(runId, flowId, source, parentFlowId),
     attachExternalFlowBySession: (sessionKey, flowId, source, parentFlowId) =>
       registry.attachExternalFlowBySession(sessionKey, flowId, source, parentFlowId),
+    setSourceHintBySession: (sessionKey, source, parentFlowId) =>
+      registry.setSourceHintBySession(sessionKey, source, parentFlowId),
   };
   try {
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = surface;

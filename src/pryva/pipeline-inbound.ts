@@ -394,6 +394,31 @@ export async function onBeforeAgentStart(
     return;
   }
 
+  // 3b. Session-keyed source hint (D6 queue defer): the queue deferred an UNRELATED message on this
+  //     session as a followup — mint a NEW flow tagged `followup` (with the parent it was deferred
+  //     behind), ahead of the bridge so it does NOT fold into the parent flow.
+  const sessionHint = pipeline.registry.consumeSourceHintBySession(sessionKey);
+  if (sessionHint) {
+    const flowId = generateFlowId();
+    pipeline.registry.bindFlow(flowId, sessionHint.source, {
+      runId,
+      sessionKey,
+      sessionId,
+      channel,
+      sender,
+      ...(sessionHint.parentFlowId ? { parentFlowId: sessionHint.parentFlowId } : {}),
+    });
+    logFlowStart(pipeline, flowId, sessionHint.source, {
+      trigger: ctx?.trigger,
+      runId,
+      sessionKey,
+      channel,
+      sender,
+      ...(sessionHint.parentFlowId ? { parentFlowId: sessionHint.parentFlowId } : {}),
+    });
+    return;
+  }
+
   // 4. Race-safe bridge: message_received is fire-and-forget and may not have
   //    bound this runId yet, but it DID bind the sessionKey (same value the run
   //    sees). If a binding exists for this run/session, this turn belongs to it

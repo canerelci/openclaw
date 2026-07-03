@@ -17,6 +17,7 @@ import type { SessionEntry } from "../../config/sessions/types.js";
 import { logVerbose } from "../../globals.js";
 import { isFastTestRuntimeEnv } from "../../infra/env.js";
 import { clearCommandLane, getQueueSize } from "../../process/command-queue.js";
+import { pryvaSteerIsRelated } from "../../pryva/steer.js";
 import {
   getSessionWorkAdmissionOwnerRelease,
   interruptSessionWorkAdmissions,
@@ -553,7 +554,7 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
     !sessionKey ||
     !applySlackRouteThreadSteeringGuard ||
     routeThreadIdsMatch(resolveActiveReplyRunThreadId(sessionKey), currentRouteThreadId);
-  const shouldSteer =
+  let shouldSteer =
     !isRoomEvent &&
     activeRunAcceptsCurrentThread &&
     !context.isHeartbeat &&
@@ -561,6 +562,18 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
     !visibleTurnPreemptsHeartbeat &&
     !recoveryOwnerActive &&
     resolvedQueue.mode === "steer";
+  // Pryva flawless-flow D6: a message that would STEER into an ACTIVE run — ask the backend whether
+  // it's RELATED to the current work. Unrelated → don't steer; it stays a followup (shouldFollowup
+  // is already true in steer mode) so it runs AFTER the active turn instead of derailing it. The
+  // backend also acks the deferral + aborts any NCW job the message invalidated. Safe by design:
+  // pryvaSteerIsRelated returns true on any failure/timeout/disabled, so normal steering is
+  // unchanged — only an explicit related:false defers.
+  if (isActive && shouldSteer) {
+    const related = await pryvaSteerIsRelated(cfg, sessionKey, context.baseBodyTrimmedRaw ?? "");
+    if (!related) {
+      shouldSteer = false;
+    }
+  }
   const shouldFollowup =
     !effectiveResetTriggered &&
     (recoveryOwnerActive ||
