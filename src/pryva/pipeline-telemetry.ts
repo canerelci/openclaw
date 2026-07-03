@@ -17,6 +17,13 @@ import type {
 import { pryvaFetch } from "./backend.js";
 import { logFlowStep, type PryvaPipeline } from "./pipeline.js";
 
+// Full transparency: keep the WHOLE input + output on the flow step so the Logs
+// magnifier shows exactly what went into and came out of every model call. Caps
+// are generous (not 500 chars) — the operator explicitly wants completeness; the
+// feature is toggleable, so space isn't the constraint.
+const LLM_INPUT_CAP = 16000;
+const LLM_OUTPUT_CAP = 16000;
+
 export async function onLlmOutput(
   pipeline: PryvaPipeline,
   event: PluginHookLlmOutputEvent,
@@ -24,9 +31,21 @@ export async function onLlmOutput(
   const usage = event?.usage;
   const model = event?.model || "unknown";
   const provider = event?.provider || "unknown";
-  const outputPreview = Array.isArray(event?.assistantTexts)
-    ? event.assistantTexts.join("\n").slice(0, 500) || null
+  // INPUT: the prompt that produced this turn (the only input the hook exposes —
+  // system prompt + history live in the session JSONL, surfaced as "Session turns").
+  const inputText =
+    typeof event?.prompt === "string" && event.prompt.trim()
+      ? event.prompt.slice(0, LLM_INPUT_CAP)
+      : null;
+  // OUTPUT: the full assistant text, not a 500-char teaser.
+  const outputFull = Array.isArray(event?.assistantTexts)
+    ? event.assistantTexts.join("\n") || null
     : null;
+  const outputText = outputFull ? outputFull.slice(0, LLM_OUTPUT_CAP) : null;
+  // The OCW llm_output hook does NOT carry reasoning CONTENT (only the effort
+  // level); the actual chain-of-thought for the main agent is in the session
+  // JSONL turns. Record the effort level so the UI can show the mode at least.
+  const reasoningEffort = event?.reasoningEffort ?? null;
 
   // Structural attribution: the LLM turn's own runId/sessionId resolve to its
   // flow; unbound → fl-unbound + WARN (never a re-minted fake id).
@@ -36,9 +55,19 @@ export async function onLlmOutput(
     {
       step_name: "ocw_llm_turn",
       step_type: "llm_call",
-      output_text: outputPreview,
+      input_text: inputText,
+      output_text: outputText,
       status: "ok",
-      metadata: { provider, model, tokens: usage ?? null },
+      metadata: {
+        provider,
+        model,
+        tokens: usage ?? null,
+        reasoning_effort: reasoningEffort,
+        // Structured prompt/response so the LlmDetailPanel renders them uniformly
+        // (same shape the backend internal-LLM records use).
+        prompt: inputText ? [{ role: "user", content: inputText }] : undefined,
+        response: outputText,
+      },
     },
   );
 
@@ -58,7 +87,11 @@ export async function onLlmOutput(
           source: "llm_output_hook",
           cache_read: usage.cacheRead ?? 0,
           cache_write: usage.cacheWrite ?? 0,
-          response: outputPreview,
+          reasoning_effort: reasoningEffort,
+          // Full input + output so the LLM Usage tab detail shows both, not just
+          // the response (main-agent rows previously carried response only).
+          prompt: inputText ? [{ role: "user", content: inputText }] : undefined,
+          response: outputText,
         },
       },
       { flowId },
