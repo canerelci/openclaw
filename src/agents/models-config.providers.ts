@@ -62,6 +62,7 @@ import {
   TOGETHER_MODEL_CATALOG,
   buildTogetherModelDefinition,
 } from "./together-models.js";
+import { GROQ_BASE_URL, GROQ_MODEL_CATALOG } from "./groq-models.js";
 import { discoverVeniceModels, VENICE_BASE_URL } from "./venice-models.js";
 
 type ModelsConfig = NonNullable<OpenClawConfig["models"]>;
@@ -961,6 +962,17 @@ function buildTogetherProvider(): ProviderConfig {
   };
 }
 
+function buildGroqProvider(): ProviderConfig {
+  return {
+    baseUrl: GROQ_BASE_URL,
+    api: "openai-completions",
+    models: GROQ_MODEL_CATALOG.map((m) => ({
+      ...m,
+      compat: { maxTokensField: "max_completion_tokens" as const },
+    })),
+  };
+}
+
 function buildOpenrouterProvider(): ProviderConfig {
   return {
     baseUrl: OPENROUTER_BASE_URL,
@@ -1262,6 +1274,14 @@ export async function resolveImplicitProviders(params: {
     providers.together = {
       ...buildTogetherProvider(),
       apiKey: togetherKey,
+    };
+  }
+
+  const groqKey = resolveProviderApiKey("groq").apiKey;
+  if (groqKey) {
+    providers.groq = {
+      ...buildGroqProvider(),
+      apiKey: groqKey,
     };
   }
 

@@ -13,6 +13,7 @@ import type { ReplyPayload } from "../../../auto-reply/types.js";
 import { toLocationContext } from "../../../channels/location.js";
 import { createReplyPrefixOptions } from "../../../channels/reply-prefix.js";
 import { resolveInboundSessionEnvelopeContext } from "../../../channels/session-envelope.js";
+import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import type { loadConfig } from "../../../config/config.js";
 import { resolveMarkdownTableMode } from "../../../config/markdown-tables.js";
 import { recordSessionMetaFromInbound } from "../../../config/sessions.js";
@@ -407,6 +408,25 @@ export async function processMessage(params: {
           // Block (reasoning/thinking) and tool updates are meant for the internal
           // web UI only; sending them here leaks chain-of-thought to end users.
           return;
+        }
+        // Run message_sending hook before delivery (allows plugins to modify/cancel)
+        const hookRunner = getGlobalHookRunner();
+        if (hookRunner && payload.text) {
+          try {
+            const hookResult = await hookRunner.runMessageSending(
+              { to: params.msg.from ?? "", content: payload.text },
+              { channelId: params.msg.chatType === "group" ? "whatsapp-group" : "whatsapp" },
+            );
+            if (hookResult?.cancel) {
+              logVerbose("message_sending hook cancelled auto-reply delivery");
+              return;
+            }
+            if (hookResult?.content != null) {
+              payload = { ...payload, text: hookResult.content };
+            }
+          } catch {
+            // Don't block delivery on hook failure (fail-open)
+          }
         }
         await deliverWebReply({
           replyResult: payload,

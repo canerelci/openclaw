@@ -3,7 +3,7 @@ import type { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { ModelDefinitionConfig } from "../../config/types.js";
 import { resolveOpenClawAgentDir } from "../agent-paths.js";
-import { DEFAULT_CONTEXT_TOKENS } from "../defaults.js";
+import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MAX_OUTPUT_TOKENS } from "../defaults.js";
 import { buildModelAliasLines } from "../model-alias-lines.js";
 import { isSecretRefHeaderValueMarker } from "../model-auth-markers.js";
 import { normalizeModelCompat } from "../model-compat.js";
@@ -215,7 +215,7 @@ export function resolveModelWithRegistry(params: {
       maxTokens:
         configuredModel?.maxTokens ??
         providerConfig?.models?.[0]?.maxTokens ??
-        DEFAULT_CONTEXT_TOKENS,
+        DEFAULT_MAX_OUTPUT_TOKENS,
       headers:
         providerHeaders || modelHeaders ? { ...providerHeaders, ...modelHeaders } : undefined,
     } as Model<Api>);
