@@ -21,6 +21,13 @@ import { FlowRegistry, UNBOUND_FLOW_ID, publishFlowRegistry } from "./flow-regis
 
 export type PryvaPipeline = {
   cfg: ResolvedPryvaConfig;
+  /**
+   * The raw OpenClawConfig (captured at registration). The native fast-ack (D3)
+   * needs it to dispatch an outbound ack via the channel layer's core
+   * `sendMessage`, which resolves the gateway from cfg. Undefined in tests that
+   * build the pipeline without it → fast-ack is then disabled.
+   */
+  rawCfg: OpenClawConfig | undefined;
   timezone: string;
   ctxStore: PipelineContextStore;
   /** Structural flow identity (D1). Single source of truth for flow_id attribution. */
@@ -43,6 +50,7 @@ export function createPryvaPipeline(
   publishFlowRegistry(registry);
   return {
     cfg,
+    rawCfg: openClawConfig,
     timezone: resolveTimezone(openClawConfig),
     ctxStore: new PipelineContextStore(),
     registry,

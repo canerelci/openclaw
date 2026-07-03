@@ -17,6 +17,7 @@ import type {
   PluginHookMessageContext,
   PluginHookMessageReceivedEvent,
 } from "../plugins/types.js";
+import { fastAckText } from "./ack.js";
 import { pryvaFetch } from "./backend.js";
 import type { PipelineInboundContext } from "./context.js";
 import { generateFlowId, normalizeTrigger, type FlowSource } from "./flow-registry.js";
@@ -68,6 +69,36 @@ async function runEar(pipeline: PryvaPipeline, entry: PipelineInboundContext): P
   );
   if (plan && typeof plan === "object") {
     entry.earPlan = plan as Record<string, unknown>;
+  }
+}
+
+/**
+ * Deliver a native fast-ack (D3) via the channel layer's core `sendMessage` —
+ * NOT by spawning the CLI. Lazy-imported so the inbound path never pays the
+ * outbound-module load cost unless a fast-ack actually fires. Resolves the
+ * gateway from the captured raw cfg. Fire-and-forget at every call site: a
+ * delivery failure is logged at debug level and swallowed (best-effort) — the
+ * ack is a courtesy greeting, never a load-bearing message.
+ */
+async function deliverFastAck(
+  pipeline: PryvaPipeline,
+  opts: { to: string; content: string; channel: string; accountId?: string },
+): Promise<void> {
+  if (!pipeline.rawCfg) {
+    return;
+  }
+  try {
+    const { sendMessage } = await import("../infra/outbound/message.js");
+    await sendMessage({
+      to: opts.to,
+      content: opts.content,
+      channel: opts.channel,
+      ...(opts.accountId ? { accountId: opts.accountId } : {}),
+      cfg: pipeline.rawCfg,
+      bestEffort: true,
+    });
+  } catch (err) {
+    pipeline.log.debug(`fast-ack delivery failed: ${String(err)}`);
   }
 }
 
@@ -202,33 +233,62 @@ export async function onMessageReceived(
   pipeline.ctxStore.set(pipeline.ctxStore.key(conversationId, channel, from), entry);
   pipeline.ctxStore.cleanupStale();
 
-  // Ear analysis (awaited so before_prompt_build can pick up the plan this turn).
-  if (content && !pipeline.cfg.pipeline.disableEar) {
-    try {
-      await runEar(pipeline, entry);
-      const intent = typeof entry.earPlan?.intent === "string" ? entry.earPlan.intent : "";
-      pipeline.log.debug(`ear intent=${intent} [${flowId}]`);
-    } catch (err) {
-      pipeline.log.debug(`ear failed: ${String(err)}`);
+  // Fast-ack (D3): a canned, instant "I'm on it" BEFORE any slow work — never
+  // blocks. Delivered via the channel layer's core sendMessage (deliverFastAck),
+  // never by spawning the CLI. fastAckText returns null for trivial messages
+  // (greetings/acks), so those get no ack. Fires on every channel including
+  // internal (I5); internal delivery becomes real once D4 registers it.
+  const ack = content ? fastAckText(content) : null;
+  if (ack) {
+    logFlowStep(
+      pipeline,
+      { flowId },
+      {
+        step_name: "fast_ack",
+        step_type: "outbound",
+        status: "ok",
+        output_text: ack,
+        metadata: { pryva_ack: true, channel, sender: from },
+      },
+    );
+    void deliverFastAck(pipeline, { to: from, content: ack, channel });
+  }
+
+  // flow_start finalizer (C2): the flow is ALREADY bound structurally (above), so
+  // nothing is orphaned during the Ear window. We log the flow_start STEP after
+  // Ear so `source` reflects is_owner — but ALWAYS log it (finally), even if Ear
+  // throws/times out, so a flow can never end up without its trigger marker.
+  const finalizeFlowStart = (refineFromEar: boolean) => {
+    if (refineFromEar && channel !== "internal") {
+      binding.source = entry.earPlan?.is_owner === true ? "owner_message" : "contact_message";
     }
-  }
+    logFlowStart(pipeline, flowId, binding.source, {
+      trigger: "user",
+      runId,
+      sessionKey,
+      channel,
+      sender: from,
+    });
+  };
 
-  // Refine owner vs contact from the Ear plan (internal channel is already
-  // internal_chat and stays). Mutating the shared binding object updates what
-  // getFlowForSession returns (C1) and the logged source in one place.
-  if (channel !== "internal") {
-    const isOwner = entry.earPlan?.is_owner === true;
-    binding.source = isOwner ? "owner_message" : "contact_message";
+  // Ear is FIRE-AND-FORGET (D3): before_prompt_build has its own wait-loop for the
+  // plan, so message_received must not block on Ear latency. flow_start is logged
+  // when Ear settles (finally); if Ear is disabled/empty, log it immediately.
+  if (content && !pipeline.cfg.pipeline.disableEar) {
+    void (async () => {
+      try {
+        await runEar(pipeline, entry);
+        const intent = typeof entry.earPlan?.intent === "string" ? entry.earPlan.intent : "";
+        pipeline.log.debug(`ear intent=${intent} [${flowId}]`);
+      } catch (err) {
+        pipeline.log.debug(`ear failed: ${String(err)}`);
+      } finally {
+        finalizeFlowStart(true);
+      }
+    })();
+  } else {
+    finalizeFlowStart(false);
   }
-
-  // flow_start trigger marker (C2) — logged AFTER Ear so `source` is final.
-  logFlowStart(pipeline, flowId, binding.source, {
-    trigger: "user",
-    runId,
-    sessionKey,
-    channel,
-    sender: from,
-  });
 }
 
 /**

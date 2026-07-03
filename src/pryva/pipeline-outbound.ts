@@ -13,6 +13,7 @@ import type {
   PluginHookMessageSendingEvent,
   PluginHookMessageSendingResult,
 } from "../plugins/types.js";
+import { isFastAck } from "./ack.js";
 import { pryvaFetch } from "./backend.js";
 import type { PipelineInboundContext } from "./context.js";
 import { UNBOUND_FLOW_ID } from "./flow-registry.js";
@@ -48,6 +49,11 @@ export async function onMessageSending(
   }
   let content = sanitized;
 
+  // A canned fast-ack (D3) is pre-approved — skip Cortex AND Mouth so the one
+  // message meant to be instant never pays an LLM QA/polish round-trip. The
+  // length checks below already skip most acks; this makes it explicit + exact.
+  const isAck = isFastAck(content);
+
   const channel = ctx?.channelId;
   const to = event?.to;
   const sessionKey = ctx?.sessionKey;
@@ -71,7 +77,7 @@ export async function onMessageSending(
   // Cortex's rewrite and otherwise let the sanitized content pass. Skipped for
   // short messages: canned acks ("Hemen bakıyorum…") were burning a ~7s LLM QA
   // call on 16 characters — nothing that short needs a quality gate.
-  if (!pipeline.cfg.pipeline.disableCortex && content.length > 40) {
+  if (!isAck && !pipeline.cfg.pipeline.disableCortex && content.length > 40) {
     const payload: Record<string, unknown> = {
       draft: content,
       original_message: original,
@@ -100,7 +106,7 @@ export async function onMessageSending(
     content.length > 80 ||
     /[|#*`[\]{}]/.test(content) ||
     /\b[0-9a-f]{8}-[0-9a-f]{4}\b/i.test(content);
-  if (!pipeline.cfg.pipeline.disableMouth && needsMouth) {
+  if (!isAck && !pipeline.cfg.pipeline.disableMouth && needsMouth) {
     const result = (await pryvaFetch(
       pipeline.cfg,
       "POST",
