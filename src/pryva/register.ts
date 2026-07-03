@@ -12,7 +12,7 @@ import type { OpenClawPluginApi } from "../plugins/types.js";
 import { resolvePryvaConfig } from "./config.js";
 import { onBeforeAgentStart, onBeforePromptBuild, onMessageReceived } from "./pipeline-inbound.js";
 import { onMessageSending } from "./pipeline-outbound.js";
-import { onAfterToolCall, onAgentEnd, onLlmOutput } from "./pipeline-telemetry.js";
+import { onAfterToolCall, onAgentEnd, onLlmInput, onLlmOutput } from "./pipeline-telemetry.js";
 import { createPryvaPipeline } from "./pipeline.js";
 
 /**
@@ -43,6 +43,9 @@ export function registerPryvaPipelineHooks(api: OpenClawPluginApi, cfg: OpenClaw
   });
   api.on("message_sending", (event, ctx) => onMessageSending(pipeline, event, ctx));
   api.on("agent_end", (event, ctx) => onAgentEnd(pipeline, event, ctx));
+  // llm_input fires just before llm_output and carries the prompt/systemPrompt/history the
+  // llm_output event omits; we stash it and attach it to the turn so every LLM call shows its input.
+  api.on("llm_input", (event) => onLlmInput(pipeline, event));
   api.on("llm_output", (event) => onLlmOutput(pipeline, event));
   api.on("after_tool_call", (event) => onAfterToolCall(pipeline, event));
 
