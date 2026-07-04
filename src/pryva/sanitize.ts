@@ -124,6 +124,18 @@ const ROLE_BREAK_MARKERS = new RegExp(
   "i",
 );
 
+/**
+ * Does this text contain a persona-integrity break — the assistant calling
+ * itself an AI / bot / language model / virtual-digital assistant, or using
+ * generic helper-bot filler? Shared detector so there is ONE source of truth:
+ * the outbound strip (`guardRoleBreak` deletes the offending sentence) and the
+ * finalize gate (`pipeline-finalize.ts` forces a full in-character rewrite before
+ * the reply is ever accepted) both key off this same regex.
+ */
+export function hasRoleBreak(content: string): boolean {
+  return content.length > 0 && ROLE_BREAK_MARKERS.test(content);
+}
+
 export function guardRoleBreak(content: string): string {
   if (!content) {
     return content;

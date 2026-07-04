@@ -39,7 +39,11 @@ export type FlowSource =
   | "system"
   // `ncw_completion` is only ever a flow_resume source (an NCW agent finishing
   // re-enters the SAME flow — it is never a new trigger).
-  | "ncw_completion";
+  | "ncw_completion"
+  // `subagent` is only ever a flow_resume source: an OCW subagent (sessions_spawn)
+  // re-enters its PARENT (requester) flow so its work joins the same tree. Never a
+  // new trigger. (Distinct from `ncw_completion`, which is a backend job.)
+  | "subagent";
 
 /** A flow's structural binding to a run/session. */
 export type FlowBinding = {
