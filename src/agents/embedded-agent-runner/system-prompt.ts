@@ -120,6 +120,14 @@ export function buildEmbeddedSystemPrompt(params: {
     toolSchemaDirectoryPrompt: params.toolSchemaDirectoryPrompt,
     sandboxInfo: params.sandboxInfo,
     toolNames: params.tools.map((tool) => tool.name),
+    // Carry each tool's description so the `## Tooling` list shows a summary line,
+    // not a bare name. Plugin tools (e.g. pryva-smm) have no entry in the builder's
+    // curated coreToolSummaries, so without this they render name-only.
+    toolSummaries: Object.fromEntries(
+      params.tools
+        .filter((tool) => typeof tool.description === "string" && tool.description.trim())
+        .map((tool) => [tool.name, tool.description as string]),
+    ),
     capabilityToolNames: params.capabilityToolNames,
     modelAliasLines: params.modelAliasLines,
     userTimezone: params.userTimezone,

@@ -366,6 +366,47 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain("sessions_send");
   });
 
+  it("shows a condensed summary for plugin tools from their description", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      toolNames: ["read", "compose_brand"],
+      toolSummaries: {
+        // core tool: coreToolSummaries takes precedence over any passed summary
+        read: "IGNORED — core curated summary wins",
+        // plugin tool: long model-facing description condensed to a scannable line
+        compose_brand:
+          "Draft branded copy for a post. It tailors per platform and returns variants. Do NOT regenerate an image just to brand it.",
+      },
+    });
+    const line = prompt.split("\n").find((l) => l.startsWith("- compose_brand:")) ?? "";
+    // core tool keeps its curated line, not the passed override
+    expect(prompt).toContain("- read: Read file contents");
+    // plugin tool now has a description (not a bare name) …
+    expect(line).toContain("Draft branded copy for a post.");
+    // … condensed to the first sentence, dropping the long tail
+    expect(line).not.toContain("Do NOT regenerate");
+    expect(line.length).toBeLessThan(200);
+  });
+
+  it("gates exec /approve guidance on elevated exec availability", () => {
+    const base = { workspaceDir: "/tmp/openclaw", toolNames: ["exec"] } as const;
+    const withoutElevated = buildAgentSystemPrompt(base);
+    const withElevated = buildAgentSystemPrompt({
+      ...base,
+      sandboxInfo: {
+        enabled: false,
+        elevated: { allowed: true, defaultLevel: "ask", fullAccessAvailable: false },
+      },
+    });
+    // No elevated exec → no approval-pending is ever produced → hide the /approve lines.
+    expect(withoutElevated).not.toContain("Never execute /approve");
+    expect(withoutElevated).not.toContain("approval-pending");
+    // But the rest of the section still renders.
+    expect(withoutElevated).toContain("## Tool Call Style");
+    // Elevated available → the approval guidance is relevant and shown.
+    expect(withElevated).toContain("Never execute /approve");
+  });
+
   it("uses provider-neutral web_search prompt metadata", () => {
     const prompt = buildAgentSystemPrompt({
       workspaceDir: "/tmp/openclaw",
@@ -1180,6 +1221,11 @@ describe("buildAgentSystemPrompt", () => {
         channel: "telegram",
         capabilities: ["inlineButtons"],
       },
+      // Approval guidance only renders when elevated exec is available.
+      sandboxInfo: {
+        enabled: false,
+        elevated: { allowed: true, defaultLevel: "ask", fullAccessAvailable: false },
+      },
     });
 
     expect(prompt).toContain("use native approval card/buttons first");
@@ -1192,6 +1238,10 @@ describe("buildAgentSystemPrompt", () => {
       runtimeInfo: {
         channel: "slack",
       },
+      sandboxInfo: {
+        enabled: false,
+        elevated: { allowed: true, defaultLevel: "ask", fullAccessAvailable: false },
+      },
     });
 
     expect(prompt).toContain("use native approval card/buttons first");
@@ -1203,6 +1253,10 @@ describe("buildAgentSystemPrompt", () => {
       workspaceDir: "/tmp/openclaw",
       runtimeInfo: {
         channel: "discord",
+      },
+      sandboxInfo: {
+        enabled: false,
+        elevated: { allowed: true, defaultLevel: "ask", fullAccessAvailable: false },
       },
     });
 

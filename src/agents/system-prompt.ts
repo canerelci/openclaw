@@ -678,6 +678,29 @@ export function appendModelIdentitySystemPrompt(params: {
   return base ? `${base}\n\n${line}` : line;
 }
 
+/**
+ * Condense a plugin tool's full model-facing description into a one-line summary for
+ * the `## Tooling` quick-reference list. The full description already reaches the model
+ * via the tool schema; the list only needs a scannable first sentence, so a plugin tool
+ * that ships a long paragraph does not bloat the prompt. Core tools keep their curated
+ * `coreToolSummaries` line, which takes precedence over this.
+ */
+function toShortToolSummary(description: string): string {
+  const oneLine = description.replace(/\s+/g, " ").trim();
+  if (!oneLine) {
+    return "";
+  }
+  const MAX = 180;
+  const sentenceEnd = oneLine.match(/\.(?:\s|$)/);
+  const firstSentence =
+    sentenceEnd?.index !== undefined && sentenceEnd.index < MAX
+      ? oneLine.slice(0, sentenceEnd.index + 1)
+      : oneLine;
+  return firstSentence.length > MAX
+    ? `${firstSentence.slice(0, MAX - 1).trimEnd()}…`
+    : firstSentence;
+}
+
 export function buildAgentSystemPrompt(params: {
   workspaceDir: string;
   defaultThinkLevel?: ThinkLevel;
@@ -855,7 +878,10 @@ export function buildAgentSystemPrompt(params: {
     if (!normalized || !value?.trim()) {
       continue;
     }
-    externalToolSummaries.set(normalized, value.trim());
+    // Plugin tools ship a full model-facing description; the `## Tooling` list only
+    // needs a scannable one-liner (the full text still reaches the model via the tool
+    // schema), so condense to the first sentence to avoid bloating the prompt.
+    externalToolSummaries.set(normalized, toShortToolSummary(value));
   }
   const extraTools = Array.from(
     new Set(normalizedTools.filter((tool) => !toolOrder.includes(tool))),
@@ -939,6 +965,10 @@ export function buildAgentSystemPrompt(params: {
     ? sanitizeForPromptLiteral(sandboxContainerWorkspace)
     : "";
   const elevated = params.sandboxInfo?.elevated;
+  // The exec `/approve` approval flow only ever fires when elevated exec is
+  // available (it is what produces an `approval-pending` result). Without it, the
+  // approval guidance is dead weight, so gate those lines on elevated availability.
+  const execApprovalRelevant = elevated?.allowed === true;
   const fullAccessBlockedReasonLabel =
     elevated?.fullAccessAvailable === false
       ? formatFullAccessBlockedReason(elevated.fullAccessBlockedReason)
@@ -1107,14 +1137,20 @@ export function buildAgentSystemPrompt(params: {
           "Routine low-risk calls: no narration.",
           "Narrate only for complex, sensitive/destructive, or explicitly requested steps.",
           "First-class tool exists: use it; do not ask user to run equivalent CLI/slash command.",
-          buildExecApprovalPromptGuidance({
-            runtimeChannel: params.runtimeInfo?.channel,
-            inlineButtonsEnabled,
-            runtimeCapabilities,
-          }),
-          "Never execute /approve through exec or any other shell/tool path; /approve is a user-facing approval command, not a shell command.",
-          "Treat allow-once as single-command only: if another elevated command needs approval, request a fresh /approve and do not claim prior approval covered it.",
-          "When approvals are required, preserve and show the full command/script exactly as provided (including chained operators like &&, ||, |, ;, or multiline shells) so the user can approve what will actually run, but keep command/script previews separate from the /approve command and never substitute the shell command/script for the approval id or slug.",
+          // Exec `/approve` guidance only when elevated exec (which produces
+          // approval-pending) is available; otherwise it is noise (see execApprovalRelevant).
+          ...(execApprovalRelevant
+            ? [
+                buildExecApprovalPromptGuidance({
+                  runtimeChannel: params.runtimeInfo?.channel,
+                  inlineButtonsEnabled,
+                  runtimeCapabilities,
+                }),
+                "Never execute /approve through exec or any other shell/tool path; /approve is a user-facing approval command, not a shell command.",
+                "Treat allow-once as single-command only: if another elevated command needs approval, request a fresh /approve and do not claim prior approval covered it.",
+                "When approvals are required, preserve and show the full command/script exactly as provided (including chained operators like &&, ||, |, ;, or multiline shells) so the user can approve what will actually run, but keep command/script previews separate from the /approve command and never substitute the shell command/script for the approval id or slug.",
+              ]
+            : []),
           "",
         ],
       }),
