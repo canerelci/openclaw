@@ -424,7 +424,7 @@ function resolveMainSessionResumeBlockReason(messages: unknown[]): string | null
 function buildResumeMessage(pendingFinalDeliveryText?: string | null): string {
   const base =
     "[System] Your previous turn was interrupted by a gateway restart while " +
-    "OpenClaw was waiting on tool/model work. Continue from the existing " +
+    "Pryva was waiting on tool/model work. Continue from the existing " +
     "transcript and finish the interrupted response.";
   const sanitizedPendingText =
     typeof pendingFinalDeliveryText === "string"

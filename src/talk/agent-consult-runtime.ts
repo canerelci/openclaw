@@ -310,7 +310,7 @@ export async function consultRealtimeVoiceAgent(params: {
     lane: params.lane,
     extraSystemPrompt:
       params.extraSystemPrompt ??
-      "You are the configured OpenClaw agent receiving delegated requests from a live voice bridge. Act on behalf of the user, use available tools when appropriate, and return a brief speakable result.",
+      "You are the configured Pryva agent receiving delegated requests from a live voice bridge. Act on behalf of the user, use available tools when appropriate, and return a brief speakable result.",
     agentDir,
   });
 

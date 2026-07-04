@@ -101,7 +101,7 @@ const mockBuildActiveMusicGenerationTaskPromptContextForSession = vi.mocked(
 );
 
 function wrappedPluginSystemContext(text: string): string {
-  return `---\n\nOpenClaw plugin-injected system context. This block is not workspace file content.\n\n${text}\n\n---`;
+  return `---\n\nPryva plugin-injected system context. This block is not workspace file content.\n\n${text}\n\n---`;
 }
 
 function createTestMcpLoopbackServerConfig(port: number) {
@@ -1216,7 +1216,7 @@ describe("shouldSkipLocalCliCredentialEpoch", () => {
         trigger: "user",
         sessionFile,
         workspaceDir: dir,
-        prompt: "[OpenClaw room event]",
+        prompt: "[Pryva room event]",
         currentInboundEventKind: "room_event",
         currentInboundContext: {
           text: "Room context:\nAlice: lunch?\n\nCurrent event:\nBob: yes",
@@ -1235,7 +1235,7 @@ describe("shouldSkipLocalCliCredentialEpoch", () => {
       });
 
       expect(context.reusableCliSession).toEqual({ sessionId: "cli-session" });
-      expect(context.params.prompt).toBe("Current event:\nBob: yes\n\n[OpenClaw room event]");
+      expect(context.params.prompt).toBe("Current event:\nBob: yes\n\n[Pryva room event]");
       expect(context.openClawHistoryPrompt).toContain("Room context:\nAlice: lunch?");
       expect(context.openClawHistoryPrompt).toContain("Current event:\nBob: yes");
     } finally {
@@ -1438,9 +1438,10 @@ describe("shouldSkipLocalCliCredentialEpoch", () => {
       });
 
       expect(context.params.prompt).toBe("latest ask");
-      expect(context.systemPrompt).toContain(
-        "You are a personal assistant running inside OpenClaw.",
-      );
+      // Product-identity opening was removed; the persona owns identity, so the
+      // prompt opens straight into operational context.
+      expect(context.systemPrompt).not.toContain("running inside OpenClaw");
+      expect(context.systemPrompt).toContain("## Tooling");
       expect(context.systemPrompt).toContain("Current model identity: test-cli/test-model.");
       expect(context.systemPrompt).not.toContain("hook exploded");
       expect(hookRunner.runBeforePromptBuild).toHaveBeenCalledOnce();
@@ -3074,7 +3075,7 @@ describe("shouldSkipLocalCliCredentialEpoch", () => {
 
       expect(context.openClawHistoryPrompt).toBeDefined();
       expect(context.openClawHistoryPrompt).toContain(summaryMarker);
-      expect(context.openClawHistoryPrompt).not.toContain("OpenClaw reseed history truncated");
+      expect(context.openClawHistoryPrompt).not.toContain("Pryva reseed history truncated");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -3129,7 +3130,7 @@ describe("shouldSkipLocalCliCredentialEpoch", () => {
 
       expect(context.openClawHistoryPrompt).toBeDefined();
       expect(context.openClawHistoryPrompt).toContain(summaryMarker);
-      expect(context.openClawHistoryPrompt).not.toContain("OpenClaw reseed history truncated");
+      expect(context.openClawHistoryPrompt).not.toContain("Pryva reseed history truncated");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -3162,7 +3163,7 @@ describe("shouldSkipLocalCliCredentialEpoch", () => {
       });
 
       expect(context.openClawHistoryPrompt).toBeDefined();
-      expect(context.openClawHistoryPrompt).toContain("OpenClaw reseed history truncated");
+      expect(context.openClawHistoryPrompt).toContain("Pryva reseed history truncated");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -3240,7 +3241,7 @@ describe("shouldSkipLocalCliCredentialEpoch", () => {
       expect(context.openClawHistoryPrompt).toBeDefined();
       expect(context.openClawHistoryPrompt).toContain(recentMarker);
       expect(context.openClawHistoryPrompt).toContain("EARLIEST_USER");
-      expect(context.openClawHistoryPrompt).not.toContain("OpenClaw reseed history truncated");
+      expect(context.openClawHistoryPrompt).not.toContain("Pryva reseed history truncated");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

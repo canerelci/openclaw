@@ -252,32 +252,32 @@ describe("runtime context prompt submission", () => {
   it("submits empty-transcript model prompts when persistence is suppressed separately", () => {
     expect(
       resolveRuntimeContextPromptParts({
-        effectivePrompt: "[OpenClaw room event]",
+        effectivePrompt: "[Pryva room event]",
         transcriptPrompt: "",
         emptyTranscriptMode: "model-prompt",
       }),
     ).toEqual({
-      prompt: "[OpenClaw room event]",
+      prompt: "[Pryva room event]",
     });
   });
 
   it("keeps suppressed empty-transcript hook context model-only", () => {
     expect(
       resolveRuntimeContextPromptParts({
-        effectivePrompt: "[OpenClaw room event]",
+        effectivePrompt: "[Pryva room event]",
         transcriptPrompt: "",
         modelPrompt: [
           "dynamic hook context",
           "",
-          "[OpenClaw room event]",
+          "[Pryva room event]",
           "",
           "dynamic hook tail",
         ].join("\n"),
         emptyTranscriptMode: "model-prompt",
       }),
     ).toEqual({
-      prompt: "[OpenClaw room event]",
-      modelPrompt: "dynamic hook context\n\n[OpenClaw room event]\n\ndynamic hook tail",
+      prompt: "[Pryva room event]",
+      modelPrompt: "dynamic hook context\n\n[Pryva room event]\n\ndynamic hook tail",
     });
   });
 
@@ -302,10 +302,10 @@ describe("runtime context prompt submission", () => {
           text: "Room context:\nAlice: lunch?\n\nCurrent event:\nBob: yes",
           resumableText: "Current event:\nBob: yes",
         },
-        prompt: "[OpenClaw room event]",
+        prompt: "[Pryva room event]",
         preferResumableText: true,
       }),
-    ).toBe("Current event:\nBob: yes\n\n[OpenClaw room event]");
+    ).toBe("Current event:\nBob: yes\n\n[Pryva room event]");
 
     expect(
       buildCurrentInboundPrompt({

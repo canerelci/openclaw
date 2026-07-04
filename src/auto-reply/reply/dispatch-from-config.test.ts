@@ -1246,7 +1246,7 @@ describe("dispatchReplyFromConfig", () => {
         MessageThreadId: 3731,
         TransportThreadId: 3731,
         To: "telegram:-1003774691294:topic:3731",
-        BodyForAgent: "[OpenClaw heartbeat poll]",
+        BodyForAgent: "[Pryva heartbeat poll]",
       }),
       cfg: automaticGroupReplyConfig,
       dispatcher,

@@ -81,7 +81,7 @@ function resolveLabels(
 ): RealtimeVoiceFastContextLabels {
   return {
     audienceLabel: labels?.audienceLabel?.trim() || "person",
-    contextName: labels?.contextName?.trim() || "OpenClaw memory context",
+    contextName: labels?.contextName?.trim() || "Pryva memory context",
   };
 }
 

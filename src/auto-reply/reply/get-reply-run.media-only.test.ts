@@ -1987,9 +1987,9 @@ describe("runPreparedReply media-only handling", () => {
     );
 
     const call = requireLastRunReplyAgentCall();
-    expect(call?.commandBody).toBe("[OpenClaw room event]");
+    expect(call?.commandBody).toBe("[Pryva room event]");
     expect(call?.transcriptCommandBody).toBe("");
-    expect(call?.followupRun.prompt).toBe("[OpenClaw room event]");
+    expect(call?.followupRun.prompt).toBe("[Pryva room event]");
     expect(call?.followupRun.transcriptPrompt).toBe("");
     expect(call?.followupRun.currentInboundEventKind).toBe("room_event");
     expect(call?.followupRun.currentInboundAudio).toBe(true);
@@ -1998,7 +1998,7 @@ describe("runPreparedReply media-only handling", () => {
     expect(call?.followupRun.currentInboundContext?.text).toContain(
       "#35675 obviyus ->#35674: Are you fr fr",
     );
-    expect(call?.followupRun.currentInboundContext?.text).toContain("[OpenClaw room event]");
+    expect(call?.followupRun.currentInboundContext?.text).toContain("[Pryva room event]");
     expect(call?.followupRun.currentInboundContext?.text).toContain(
       "visible_reply_contract: message_tool_only",
     );
@@ -2055,7 +2055,7 @@ describe("runPreparedReply media-only handling", () => {
     expect(call.shouldFollowup).toBe(true);
     expect(call.isActive).toBe(true);
     expect(call.resolvedQueue.mode).toBe("steer");
-    expect(call.followupRun.prompt).toBe("[OpenClaw room event]");
+    expect(call.followupRun.prompt).toBe("[Pryva room event]");
     expect(call.followupRun.currentInboundEventKind).toBe("room_event");
     expect(call.followupRun.abortSignal).toBe(abortController.signal);
     expect(call.followupRun.currentInboundContext?.text).toContain("Current event:");
@@ -2373,8 +2373,8 @@ describe("runPreparedReply media-only handling", () => {
     const call = requireLastRunReplyAgentCall();
     expect(call?.commandBody).toContain(heartbeatPrompt);
     expect(call?.followupRun.prompt).toContain(heartbeatPrompt);
-    expect(call?.transcriptCommandBody).toBe("[OpenClaw heartbeat poll]");
-    expect(call?.followupRun.transcriptPrompt).toBe("[OpenClaw heartbeat poll]");
+    expect(call?.transcriptCommandBody).toBe("[Pryva heartbeat poll]");
+    expect(call?.followupRun.transcriptPrompt).toBe("[Pryva heartbeat poll]");
   });
 
   it("uses persisted Discord chat metadata for system-event CLI static prompt identity", async () => {
@@ -2498,8 +2498,8 @@ describe("runPreparedReply media-only handling", () => {
       expect(call?.commandBody).toContain("telegram-user-1");
       expect(call?.followupRun.prompt).toContain("A new session was started via /new or /reset.");
       expect(call?.followupRun.prompt).toContain("Sender (untrusted metadata):");
-      expect(call?.transcriptCommandBody).toBe(`[OpenClaw session ${startupAction}]`);
-      expect(call?.followupRun.transcriptPrompt).toBe(`[OpenClaw session ${startupAction}]`);
+      expect(call?.transcriptCommandBody).toBe(`[Pryva session ${startupAction}]`);
+      expect(call?.followupRun.transcriptPrompt).toBe(`[Pryva session ${startupAction}]`);
       expect(call?.followupRun.transcriptPrompt).not.toContain("Sender (untrusted metadata):");
     },
   );

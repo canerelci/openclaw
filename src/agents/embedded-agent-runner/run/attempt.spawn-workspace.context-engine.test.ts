@@ -1850,12 +1850,12 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
       tempPaths,
       trajectory: true,
       attemptOverrides: {
-        prompt: "[OpenClaw room event]",
+        prompt: "[Pryva room event]",
         transcriptPrompt: "",
         currentInboundEventKind: "room_event",
         currentInboundContext: {
           text: [
-            "[OpenClaw room event]",
+            "[Pryva room event]",
             "inbound_event_kind: room_event",
             "visible_reply_contract: message_tool_only",
             "Room context:\n#2001 Alice: lunch at 2?\n#2002 Bob: works",
@@ -1882,11 +1882,11 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
       },
     });
 
-    expect(seenPrompt).toContain("[OpenClaw room event]");
+    expect(seenPrompt).toContain("[Pryva room event]");
     expect(seenPrompt).toContain("inbound_event_kind: room_event");
     expect(seenPrompt).toContain("visible_reply_contract: message_tool_only");
     expect(seenPrompt).toContain("Current event:\n#2003 Bob: hey claw summarize the plan");
-    expect(seenPrompt?.trim().endsWith("[OpenClaw room event]")).toBe(true);
+    expect(seenPrompt?.trim().endsWith("[Pryva room event]")).toBe(true);
     expect(seenPrompt).not.toBe("Continue the OpenClaw runtime event.");
     expect(seenPrompt).not.toContain("dynamic hook context");
     expect(seenPrompt).not.toContain("dynamic hook tail");
@@ -1901,7 +1901,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
       .map((line) => JSON.parse(line) as TrajectoryEvent);
     const contextCompiled = trajectoryEvents.find((event) => event.type === "context.compiled");
     expect(contextCompiled?.data?.prompt).toContain("visible_reply_contract: message_tool_only");
-    expect(contextCompiled?.data?.prompt).toContain("[OpenClaw room event]");
+    expect(contextCompiled?.data?.prompt).toContain("[Pryva room event]");
   });
 
   it("skips blank visible prompts with replay history before provider submission", async () => {

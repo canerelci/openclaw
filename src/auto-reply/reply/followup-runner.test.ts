@@ -1165,7 +1165,7 @@ describe("createFollowupRunner runtime config", () => {
       createQueuedRun({
         currentInboundEventKind: "room_event",
         currentInboundAudio: true,
-        currentInboundContext: { text: "[OpenClaw room event]" },
+        currentInboundContext: { text: "[Pryva room event]" },
         run: {
           config: runtimeConfig,
           sessionId: "session-cli-room-event",
@@ -1239,7 +1239,7 @@ describe("createFollowupRunner runtime config", () => {
     await runner(
       createQueuedRun({
         currentInboundEventKind: "room_event",
-        currentInboundContext: { text: "[OpenClaw room event]" },
+        currentInboundContext: { text: "[Pryva room event]" },
         run: {
           config: runtimeConfig,
           sessionId: "session-cli-room-event",
@@ -1311,7 +1311,7 @@ describe("createFollowupRunner runtime config", () => {
     await runner(
       createQueuedRun({
         currentInboundEventKind: "room_event",
-        currentInboundContext: { text: "[OpenClaw room event]" },
+        currentInboundContext: { text: "[Pryva room event]" },
         run: {
           config: runtimeConfig,
           sessionId: "session-cli-room-event",

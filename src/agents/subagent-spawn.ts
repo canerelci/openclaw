@@ -530,7 +530,7 @@ async function prepareSubagentSessionContext(params: {
     }
     if (forkedResult.status === "failed" || forkedResult.status === "missing-entry") {
       throw new Error(
-        'context="fork" requested but OpenClaw could not fork the requester transcript.',
+        'context="fork" requested but Pryva could not fork the requester transcript.',
       );
     }
     parentEntry = forkedResult.parentEntry;
@@ -560,7 +560,7 @@ async function prepareSubagentSessionContext(params: {
         }
         return {
           status: "error",
-          error: 'context="fork" requested but OpenClaw could not prepare forked context.',
+          error: 'context="fork" requested but Pryva could not prepare forked context.',
         };
       }
       return {

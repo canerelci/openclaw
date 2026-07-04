@@ -400,7 +400,7 @@ describe("talk realtime gateway relay", () => {
         status: "working",
         tool: "openclaw_agent_consult",
         message:
-          "Tell the person briefly that you are checking, then wait for the final OpenClaw result before answering with the actual result.",
+          "Tell the person briefly that you are checking, then wait for the final Pryva result before answering with the actual result.",
       },
       { willContinue: true },
     );
@@ -867,7 +867,7 @@ describe("talk realtime gateway relay", () => {
       options: { willContinue: true },
     });
     expect(bridge.sendUserMessage).toHaveBeenLastCalledWith(
-      "Briefly tell the person that you are checking with OpenClaw. Do not answer the request yet. Wait for the OpenClaw result before giving the actual answer.",
+      "Briefly tell the person that you are checking with Pryva. Do not answer the request yet. Wait for the Pryva result before giving the actual answer.",
     );
 
     bridgeRequest?.onToolCall?.({
@@ -882,7 +882,7 @@ describe("talk realtime gateway relay", () => {
         status: "working",
         tool: "openclaw_agent_consult",
         message:
-          "Tell the person briefly that you are checking, then wait for the final OpenClaw result before answering with the actual result.",
+          "Tell the person briefly that you are checking, then wait for the final Pryva result before answering with the actual result.",
       },
       { willContinue: true },
     );
@@ -897,13 +897,13 @@ describe("talk realtime gateway relay", () => {
       "native-call",
       {
         status: "already_delivered",
-        message: "OpenClaw already delivered this consult result internally. Do not repeat it.",
+        message: "Pryva already delivered this consult result internally. Do not repeat it.",
       },
       { suppressResponse: true },
     );
     expect(bridge.sendUserMessage).toHaveBeenLastCalledWith(
       [
-        "OpenClaw finished checking. Speak this result naturally and concisely.",
+        "Pryva finished checking. Speak this result naturally and concisely.",
         "Do not mention tool calls, JSON, or internal routing.",
         "",
         "Here is the checked answer.",
@@ -942,7 +942,7 @@ describe("talk realtime gateway relay", () => {
         status: "working",
         tool: "openclaw_agent_consult",
         message:
-          "Tell the person briefly that you are checking, then wait for the final OpenClaw result before answering with the actual result.",
+          "Tell the person briefly that you are checking, then wait for the final Pryva result before answering with the actual result.",
       },
       { willContinue: true },
     );
@@ -1333,7 +1333,7 @@ describe("talk realtime gateway relay", () => {
       mode: "cancel",
       providerResult: {
         status: "cancelled",
-        message: "Cancelled the active OpenClaw run.",
+        message: "Cancelled the active Pryva run.",
       },
     });
     expect(abortEmbeddedRun).toHaveBeenCalledTimes(1);
@@ -1341,7 +1341,7 @@ describe("talk realtime gateway relay", () => {
       "call-1",
       {
         status: "cancelled",
-        message: "Cancelled the active OpenClaw run.",
+        message: "Cancelled the active Pryva run.",
       },
       { suppressResponse: true },
     );
@@ -1443,7 +1443,7 @@ describe("talk realtime gateway relay", () => {
       mode: "cancel",
       providerResult: {
         status: "cancelled",
-        message: "Cancelled the active OpenClaw run.",
+        message: "Cancelled the active Pryva run.",
       },
     });
     expect(abortEmbeddedRun).toHaveBeenCalledTimes(1);

@@ -292,7 +292,7 @@ function readTranscriptMessages(sessionFile: string): unknown[] {
 }
 
 const CLI_RESEED_PROMPT =
-  "Continue this conversation using the OpenClaw transcript below as prior session history.\n\n<conversation_history>\nUser: earlier context\n</conversation_history>\n\n<next_user_message>\nhi\n</next_user_message>";
+  "Continue this conversation using the Pryva transcript below as prior session history.\n\n<conversation_history>\nUser: earlier context\n</conversation_history>\n\n<next_user_message>\nhi\n</next_user_message>";
 
 describe("runCliAgent reliability", () => {
   afterEach(() => {
@@ -1749,7 +1749,7 @@ describe("runCliAgent reliability", () => {
     const result = await runPreparedCliAgent(
       buildPreparedContext({
         openClawHistoryPrompt:
-          "Continue this conversation using the OpenClaw transcript below.\n\nUser: earlier ask\n\nAssistant: earlier answer\n\n<next_user_message>\nhi\n</next_user_message>",
+          "Continue this conversation using the Pryva transcript below.\n\nUser: earlier ask\n\nAssistant: earlier answer\n\n<next_user_message>\nhi\n</next_user_message>",
       }),
     );
 
@@ -3008,7 +3008,7 @@ describe("runCliAgent reliability", () => {
       runId: "run-retry-success",
       cliSessionId: "thread-123",
       openClawHistoryPrompt:
-        "Continue this conversation using the OpenClaw transcript below.\n\nUser: recovered history\n\n<next_user_message>\nhi\n</next_user_message>",
+        "Continue this conversation using the Pryva transcript below.\n\nUser: recovered history\n\n<next_user_message>\nhi\n</next_user_message>",
     });
     const clearBeforeRetry = vi.fn(async () => true);
 
