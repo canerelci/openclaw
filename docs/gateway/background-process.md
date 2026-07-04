@@ -75,7 +75,7 @@ Behavior:
 ### Disable automatic completion turns
 
 Background exec completion notifications are enabled by default. They can run a
-model turn marked `[OpenClaw exec completion]` even when
+model turn marked `[Pryva exec completion]` even when
 `agents.defaults.heartbeat.every` is `"0m"`: that setting disables recurring polls,
 not completion follow-ups.
 

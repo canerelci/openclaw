@@ -507,7 +507,7 @@ describe("prepareEmbeddedAttemptPromptContext", () => {
 
   it("keeps a pure heartbeat task active while persisting only the poll marker", async () => {
     const taskPrompt = "Check the deployment and report any failures.";
-    const transcriptPrompt = "[OpenClaw heartbeat poll]";
+    const transcriptPrompt = "[Pryva heartbeat poll]";
     const fixture = createInput({
       attempt: createAttempt({ currentInboundContext: undefined }),
       prompt: createPrompt({
@@ -526,7 +526,7 @@ describe("prepareEmbeddedAttemptPromptContext", () => {
 
   it("keeps the live orphan-repair heartbeat task active without parsing its marker", async () => {
     const taskPrompt = "Check the deployment and report any failures.";
-    const transcriptPrompt = "[OpenClaw heartbeat poll]";
+    const transcriptPrompt = "[Pryva heartbeat poll]";
     const mergedModelPrompt = [QUEUED_USER_MESSAGE_MARKER, transcriptPrompt, "", taskPrompt].join(
       "\n",
     );

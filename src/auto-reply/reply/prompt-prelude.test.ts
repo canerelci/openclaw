@@ -32,7 +32,7 @@ describe("buildReplyPromptEnvelope", () => {
 
     expect(envelope.prefixedCommandBody).toContain("sender_id=telegram-user-1");
     expect(envelope.prefixedCommandBody).toContain("Startup context");
-    expect(envelope.transcriptCommandBody).toBe("[OpenClaw session reset]");
+    expect(envelope.transcriptCommandBody).toBe("[Pryva session reset]");
     expect(envelope.currentInboundContext).toBeUndefined();
   });
 

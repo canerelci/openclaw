@@ -143,7 +143,7 @@ export function formatDiskSpaceErrorCopy(raw: string): string | undefined {
   return /\benospc\b/i.test(raw) ||
     lower.includes("no space left on device") ||
     lower.includes("disk full")
-    ? "OpenClaw could not write local session data because the disk is full. Free some disk space and try again."
+    ? "Pryva could not write local session data because the disk is full. Free some disk space and try again."
     : undefined;
 }
 

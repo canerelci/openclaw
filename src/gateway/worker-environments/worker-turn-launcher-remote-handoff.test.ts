@@ -266,7 +266,7 @@ describe("worker turn launcher remote handoff", () => {
     ).toBe(true);
     expect(descriptor?.assignment.prompt).toMatch(/^\[[^\]]+\] Inspect this workspace$/u);
     const systemPrompt = descriptor?.assignment.systemPrompt;
-    expect(systemPrompt).toContain("You are a personal assistant running inside OpenClaw.");
+    expect(systemPrompt).not.toContain("running inside OpenClaw");
     expect(systemPrompt).toContain("Keep the worker guidance.");
     expect(systemPrompt).toContain("active_node=active-mac");
     expect(systemPrompt).toContain("active_node_identity=unknown");
@@ -475,9 +475,7 @@ describe("worker turn launcher remote handoff", () => {
       "media/inbound/openclaw-staged-",
     );
     expect(tunnel.stageAttachments).toHaveBeenCalledOnce();
-    expect(descriptor?.assignment.systemPrompt).toContain(
-      "You are a personal assistant running inside OpenClaw.",
-    );
+    expect(descriptor?.assignment.systemPrompt).not.toContain("running inside OpenClaw");
     expect(descriptor?.assignment.systemPrompt).toContain("active_node=unknown");
     expect(descriptor?.assignment.systemPrompt).toContain("active_node_identity=unknown");
     expect(descriptor?.assignment.systemPrompt).not.toContain("disconnected-mac");

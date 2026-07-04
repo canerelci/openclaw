@@ -32,13 +32,13 @@ const FORCED_CONSULT_FALLBACK_DELAY_MS = 200;
 const FORCED_CONSULT_RESULT_MAX_CHARS = 1_800;
 
 const FORCED_CONSULT_CHECKING_PROMPT = [
-  "Briefly tell the person that you are checking with OpenClaw.",
-  "Do not answer the request yet. Wait for the OpenClaw result before giving the actual answer.",
+  "Briefly tell the person that you are checking with Pryva.",
+  "Do not answer the request yet. Wait for the Pryva result before giving the actual answer.",
 ].join(" ");
 
 function buildForcedConsultSpeechPrompt(text: string): string {
   return [
-    "OpenClaw finished checking. Speak this result naturally and concisely.",
+    "Pryva finished checking. Speak this result naturally and concisely.",
     "Do not mention tool calls, JSON, or internal routing.",
     "",
     text,
@@ -48,7 +48,7 @@ function buildForcedConsultSpeechPrompt(text: string): string {
 export function buildAlreadyDeliveredToolResult(): Record<string, string> {
   return {
     status: "already_delivered",
-    message: "OpenClaw already delivered this consult result internally. Do not repeat it.",
+    message: "Pryva already delivered this consult result internally. Do not repeat it.",
   };
 }
 
@@ -184,7 +184,7 @@ export function scheduleForcedAgentConsult(session: RelaySession, question: stri
       args: {
         question: handle.question,
         context:
-          "The realtime provider produced a final user transcript without invoking openclaw_agent_consult, so OpenClaw is forcing the consult for realtime Talk.",
+          "The realtime provider produced a final user transcript without invoking openclaw_agent_consult, so Pryva is forcing the consult for realtime Talk.",
         responseStyle: "Reply in a concise spoken tone.",
       },
       talkEvent: session.harness.talk.emit({

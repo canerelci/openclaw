@@ -318,7 +318,7 @@ describe("buildAgentSystemPrompt", () => {
       { toolNames: ["openclaw", "gateway"] },
       [
         "Gateway restart, config, channels, plugins, agents, models/providers: ask `openclaw`.",
-        "Update OpenClaw: `gateway` action update.run",
+        "Update Pryva: `gateway` action update.run",
       ],
       ["models/providers, updates: ask `openclaw`"],
     ],

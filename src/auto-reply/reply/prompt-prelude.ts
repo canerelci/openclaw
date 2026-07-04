@@ -13,7 +13,7 @@ import { buildInboundMediaNoteProjection } from "../media-note.js";
 import type { MsgContext, TemplateContext } from "../templating.js";
 import { appendChannelPromptContext } from "./channel-prompt-context.js";
 
-const ROOM_EVENT_PROMPT = "[OpenClaw room event]";
+const ROOM_EVENT_PROMPT = "[Pryva room event]";
 const ROOM_EVENT_PARTICIPATION_RULE =
   "Treat this message as observed room activity, not a request. You were not explicitly tagged or mentioned in this room event. Default: stay silent. Only respond if you have something useful, substantial, or important to add. A previous mention or reply is not an invitation to keep talking.";
 const RESUMABLE_ROOM_CONTEXT_OMITTED_PREFIXES = [
@@ -171,7 +171,7 @@ export function buildReplyPromptEnvelopeBase(
         InternalTurnSource: params.ctx.InternalTurnSource ?? params.sessionCtx.InternalTurnSource,
       }).text
     : params.isBareSessionReset
-      ? softResetTail || `[OpenClaw session ${params.startupAction}]`
+      ? softResetTail || `[Pryva session ${params.startupAction}]`
       : effectiveBaseBody;
   const fragments: RuntimeContextFragment[] = [
     ...(isRoomEvent ? [{ kind: "runtime-instruction" as const, text: ROOM_EVENT_PROMPT }] : []),

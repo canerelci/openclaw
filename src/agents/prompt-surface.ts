@@ -10,10 +10,10 @@ import { isAcpSessionKey, isSubagentSessionKey } from "../routing/session-key.js
 /** Builds fallback tool guidance when a runtime cannot render the structured tool list. */
 export function buildOpenClawToolFallbackText(params: { surface: AgentPromptSurfaceKind }): string {
   if (isOpenClawMainPromptSurface(params.surface)) {
-    return "The active runtime provides the available OpenClaw tools directly. Use only exposed tools; names are case-sensitive.";
+    return "The active runtime provides the available Pryva tools directly. Use only exposed tools; names are case-sensitive.";
   }
 
-  return "No OpenClaw tool list is injected for this runtime prompt surface. Use only tools exposed directly by the active backend.";
+  return "No tool list is injected for this runtime prompt surface. Use only tools exposed directly by the active backend.";
 }
 
 /** Maps a session key to the prompt surface used for tool guidance and runtime behavior. */

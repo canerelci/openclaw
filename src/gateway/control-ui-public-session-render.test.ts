@@ -67,7 +67,7 @@ describe("public session document", () => {
       },
       { role: "assistant", content: "NO_REPLY" },
       { role: "assistant", content: "HEARTBEAT_OK" },
-      { role: "user", content: "[OpenClaw heartbeat poll]" },
+      { role: "user", content: "[Pryva heartbeat poll]" },
       {
         role: "user",
         provenance: { kind: "external_user" },

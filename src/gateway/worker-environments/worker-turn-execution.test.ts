@@ -357,7 +357,7 @@ describe("worker turn execution", () => {
         const request = launchTurn.mock.calls[0]![0];
         expect(parseWorkerLaunchPlan(request.plan)).toEqual(request.plan);
         const { systemPrompt, prompt, runtimeContext } = request.plan.assignment;
-        expect(systemPrompt).toContain("You are a personal assistant running inside OpenClaw.");
+        expect(systemPrompt).not.toContain("running inside OpenClaw");
         expect(systemPrompt).toContain("Canonical agent instructions.");
         expect(systemPrompt).toContain("Canonical agent identity.");
         expect(systemPrompt).toContain("Canonical user context.");

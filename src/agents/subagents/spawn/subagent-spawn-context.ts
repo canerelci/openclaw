@@ -81,14 +81,14 @@ export async function prepareSubagentSessionContext(params: {
     }
     if (forkedResult.status === "failed" || forkedResult.status === "missing-entry") {
       throw new Error(
-        'context="fork" requested but OpenClaw could not fork the requester transcript.',
+        'context="fork" requested but Pryva could not fork the requester transcript.',
       );
     }
     if (forkedResult.status === "skipped") {
       const forkFallbackNote =
         forkedResult.decision?.status === "skip" ? forkedResult.decision.message : undefined;
       if (!forkFallbackNote) {
-        throw new Error('context="fork" requested but OpenClaw could not prepare forked context.');
+        throw new Error('context="fork" requested but Pryva could not prepare forked context.');
       }
       return {
         status: "ok",

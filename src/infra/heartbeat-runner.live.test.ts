@@ -277,7 +277,7 @@ describeLive("session event wake through a live Gateway", () => {
         expect(completionUsers).toMatch(
           new RegExp(`Exec completed \\([^)]*, code ${exitCode}\\) :: ${completionReply}`),
         );
-        expect(completionUsers).not.toContain("[OpenClaw heartbeat poll]");
+        expect(completionUsers).not.toContain("[Pryva heartbeat poll]");
         expect(await fs.readFile(path.join(workspace, "completion-completed"), "utf8")).toBe(
           "completed",
         );
@@ -321,7 +321,7 @@ describeLive("session event wake through a live Gateway", () => {
           await vi.waitFor(
             async () => {
               const mainMessages = await readMessages(mainSessionKey);
-              expect(messagesWithRole(mainMessages, "user")).toContain("[OpenClaw heartbeat poll]");
+              expect(messagesWithRole(mainMessages, "user")).toContain("[Pryva heartbeat poll]");
               expect(messagesWithRole(mainMessages, "assistant")).toContain(monitorReply);
             },
             { timeout: TURN_TIMEOUT_MS, interval: 1_000 },

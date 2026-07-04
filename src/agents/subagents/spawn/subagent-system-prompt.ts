@@ -112,7 +112,7 @@ export function buildSubagentSpawnEnvelope(params: {
             ...(params.acpEnabled
               ? [
                   "ACP harness: use the available ACP spawn capability; set `agentId` unless default. Codex only explicit ACP/acpx.",
-                  "Local subagent list/status tools cover OpenClaw runtime=subagent only; ACP ids come from `acp.allowedAgents`.",
+                  "Local subagent list/status tools cover Pryva runtime=subagent only; ACP ids come from `acp.allowedAgents`.",
                   "Never ask the user for slash/CLI or exec openclaw/acpx when delegation tools can act.",
                 ]
               : []),

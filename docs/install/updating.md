@@ -1124,7 +1124,7 @@ openclaw health
 
 ### Background exec notifications after an update
 
-`[OpenClaw exec completion]` identifies an automatic follow-up for a background
+`[Pryva exec completion]` identifies an automatic follow-up for a background
 command, rather than a recurring heartbeat poll. These follow-ups can run with
 `agents.defaults.heartbeat.every: "0m"`. To keep background exec without these
 extra model calls, set `tools.exec.notifyOnExit: false` and check per-agent

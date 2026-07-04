@@ -188,7 +188,7 @@ it("chat.send replays synthetic repairs through session history and the register
             });
           manager.appendMessage(makeUserMessage("Check service health.", timestamp));
           manager.appendMessage(assistant([{ type: "text", text: "Checking." }]));
-          manager.appendMessage(makeUserMessage("[OpenClaw heartbeat poll]", timestamp));
+          manager.appendMessage(makeUserMessage("[Pryva heartbeat poll]", timestamp));
           manager.appendMessage(
             assistant(
               ["missing", "real", "error", "quoted"].map((id) => ({
@@ -229,7 +229,7 @@ it("chat.send replays synthetic repairs through session history and the register
             });
           }
           manager.appendMessage(assistant([{ type: "text", text: "USEFUL_ALERT" }]));
-          manager.appendMessage(makeUserMessage("[OpenClaw heartbeat poll]", timestamp));
+          manager.appendMessage(makeUserMessage("[Pryva heartbeat poll]", timestamp));
           manager.appendMessage(assistant([{ type: "text", text: "HEARTBEAT_OK" }]));
           manager.flushPendingPersistence();
           const original = readStoredRows(target.storePath, sessionId);

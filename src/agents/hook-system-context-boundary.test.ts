@@ -5,7 +5,7 @@ import { wrapPluginSystemContextSection } from "./hook-system-context-boundary.j
 function wrappedPluginSystemContext(text: string): string {
   // The boundary text makes injected context explicit to the model so plugin
   // instructions are not mistaken for workspace file content.
-  return `---\n\nOpenClaw plugin-injected system context. This block is not workspace file content.\n\n${text}\n\n---`;
+  return `---\n\nPryva plugin-injected system context. This block is not workspace file content.\n\n${text}\n\n---`;
 }
 
 describe("wrapPluginSystemContextSection", () => {

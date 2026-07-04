@@ -1730,7 +1730,7 @@ describe("prepareCliRunContext", () => {
         sessionKey: "agent:main:test",
         agentId: "main",
         trigger: "user",
-        prompt: "[OpenClaw room event]",
+        prompt: "[Pryva room event]",
         currentInboundEventKind: "room_event",
         currentInboundContext: {
           text: "Room context:\nAlice: lunch?\n\nCurrent event:\nBob: yes",
@@ -1746,12 +1746,12 @@ describe("prepareCliRunContext", () => {
 
       expect(context.reusableCliSession).toEqual({ mode: "reuse", sessionId: "cli-session" });
       expect(context.params.prompt).toMatch(
-        /^Current event:\nBob: yes\n\n\[OpenClaw room event\]\n\nFor the current source conversation,/,
+        /^Current event:\nBob: yes\n\n\[Pryva room event\]\n\nFor the current source conversation,/,
       );
       expect(context.params.prompt).toMatch(
         /\n\nCurrent active computer .*active_node=unknown active_node_identity=unknown$/,
       );
-      expect(context.params.transcriptPrompt).toBe("[OpenClaw room event]");
+      expect(context.params.transcriptPrompt).toBe("[Pryva room event]");
       expect(context.openClawHistoryPrompt).toContain("Room context:\nAlice: lunch?");
       expect(context.openClawHistoryPrompt).toContain("Current event:\nBob: yes");
     });
@@ -4692,10 +4692,10 @@ describe("prepareCliRunContext", () => {
       expect(context.openClawHistoryPrompt).toBeDefined();
       expect(context.openClawHistoryPrompt).toContain("RESEED_RETAINED_PREFIX");
       if (testCase.expectsTruncation) {
-        expect(context.openClawHistoryPrompt).toContain("OpenClaw reseed history truncated");
+        expect(context.openClawHistoryPrompt).toContain("Pryva reseed history truncated");
       } else {
         expect(context.openClawHistoryPrompt).toContain(testCase.marker);
-        expect(context.openClawHistoryPrompt).not.toContain("OpenClaw reseed history truncated");
+        expect(context.openClawHistoryPrompt).not.toContain("Pryva reseed history truncated");
       }
     });
   });

@@ -205,7 +205,7 @@ export async function resolveRealtimeVoiceFastContextConsult(params: {
 
   const labels = {
     audienceLabel: params.labels?.audienceLabel?.trim() || "person",
-    contextName: params.labels?.contextName?.trim() || "OpenClaw memory context",
+    contextName: params.labels?.contextName?.trim() || "Pryva memory context",
   };
   const parsed = parseRealtimeVoiceAgentConsultArgs(params.args);
   const query = [parsed.question, parsed.context].filter(Boolean).join("\n\n");

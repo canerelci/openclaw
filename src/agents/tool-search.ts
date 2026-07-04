@@ -313,7 +313,7 @@ export function createToolSearchTools(ctx: ToolSearchToolContext): AnyAgentTool[
     {
       name: TOOL_CALL_RAW_TOOL_NAME,
       label: "Tool Call",
-      description: "Call an exact Tool Search result id or name through OpenClaw.",
+      description: "Call an exact Tool Search result id or name through Pryva.",
       parameters: Type.Object({
         id: Type.String({ description: "Tool search result id or tool name." }),
         args: Type.Optional(

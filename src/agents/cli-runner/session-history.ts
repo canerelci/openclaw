@@ -165,7 +165,7 @@ export function buildCliSessionHistoryPrompt(params: {
 
   const tailRaw = tailMessages.map(renderHistoryMessage).filter(Boolean).join("\n\n").trim();
 
-  const truncationMarker = "[OpenClaw reseed history truncated; older turns dropped]";
+  const truncationMarker = "[Pryva reseed history truncated; older turns dropped]";
   const renderTruncatedTail = (raw: string, budget: number): string => {
     if (budget <= truncationMarker.length + "\n".length) {
       return sliceUtf16Safe(raw, -budget).trimStart();
@@ -220,7 +220,7 @@ export function buildCliSessionHistoryPrompt(params: {
   }
 
   return [
-    "Continue this conversation using the OpenClaw transcript below as prior session history.",
+    "Continue this conversation using the Pryva transcript below as prior session history.",
     "Treat it as authoritative context for this fresh CLI session.",
     "",
     "<conversation_history>",

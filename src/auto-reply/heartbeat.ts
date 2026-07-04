@@ -16,12 +16,12 @@ export const HEARTBEAT_RESPONSE_TOOL_INSTRUCTIONS =
 const HEARTBEAT_RESPONSE_TOOL_FALLBACK_INSTRUCTIONS = `If the heartbeat_respond tool is not available in this run, reply ${SILENT_REPLY_TOKEN} when nothing needs the user's attention; when the user should be interrupted, reply with only the alert text instead of a prose report.`;
 export const HEARTBEAT_RESPONSE_TOOL_PROMPT = `${HEARTBEAT_CONTEXT_PROMPT} ${HEARTBEAT_RESPONSE_TOOL_INSTRUCTIONS} ${HEARTBEAT_RESPONSE_TOOL_FALLBACK_INSTRUCTIONS}`;
 export const INTERNAL_WAKE_TRANSCRIPT_PROMPTS = {
-  heartbeat: "[OpenClaw heartbeat poll]",
-  exec: "[OpenClaw exec completion]\nDisable automatic completion turns with tools.exec.notifyOnExit=false; check per-agent overrides. Background exec and process poll remain available.",
+  heartbeat: "[Pryva heartbeat poll]",
+  exec: "[Pryva exec completion]\nDisable automatic completion turns with tools.exec.notifyOnExit=false; check per-agent overrides. Background exec and process poll remain available.",
   // Saved transcripts still contain the marker without the disablement hint.
-  legacyExec: "[OpenClaw exec completion]",
-  cron: "[OpenClaw cron wake]",
-  event: "[OpenClaw session event]",
+  legacyExec: "[Pryva exec completion]",
+  cron: "[Pryva cron wake]",
+  event: "[Pryva session event]",
 } as const;
 export const DEFAULT_HEARTBEAT_EVERY = "30m";
 export const DEFAULT_HEARTBEAT_ACK_MAX_CHARS = 300;

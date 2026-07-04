@@ -43,9 +43,9 @@ describe("runtime context prompt submission", () => {
     expect(
       resolveRuntimeContextPromptParts({
         effectivePrompt: "Check the deployment.",
-        transcriptPrompt: "[OpenClaw heartbeat poll]",
+        transcriptPrompt: "[Pryva heartbeat poll]",
       }),
-    ).toEqual({ prompt: "[OpenClaw heartbeat poll]", modelPrompt: "Check the deployment." });
+    ).toEqual({ prompt: "[Pryva heartbeat poll]", modelPrompt: "Check the deployment." });
   });
 
   it("requires producer context for the runtime-only continuation prompt", () => {

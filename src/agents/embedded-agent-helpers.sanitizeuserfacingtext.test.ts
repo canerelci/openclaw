@@ -99,7 +99,7 @@ describe("sanitizeUserFacingText", () => {
 
   it.each(["disk full"])("rewrites disk-space failures with errorContext: %s", (input) => {
     expect(renderUserFacingText(input, { errorContext: true })).toBe(
-      "OpenClaw could not write local session data because the disk is full. Free some disk space and try again.",
+      "Pryva could not write local session data because the disk is full. Free some disk space and try again.",
     );
   });
 

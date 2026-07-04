@@ -48,7 +48,7 @@ describe("resolveRealtimeBootstrapContextInstructions", () => {
         files: lines === 1 ? undefined : ["IDENTITY.md", "USER.md", "SOUL.md"],
       });
       for (const text of [
-        "OpenClaw realtime voice profile context",
+        "Pryva realtime voice profile context",
         "### IDENTITY.md",
         "Name: Wilfred",
         "### USER.md",
@@ -134,7 +134,7 @@ describe("resolveRealtimeVoiceAgentContextInstructions", () => {
       } else {
         expect(
           instructions.startsWith(
-            `${framing}\n\nConfigured identity:\n- Name: Wilfred\n- Emoji: 🦞\n- Vibe: dry\n- Theme: friendly\n- Creature/persona: lobster\n\nOpenClaw realtime voice profile context:`,
+            `${framing}\n\nConfigured identity:\n- Name: Wilfred\n- Emoji: 🦞\n- Vibe: dry\n- Theme: friendly\n- Creature/persona: lobster\n\nPryva realtime voice profile context:`,
           ),
         ).toBe(true);
       }

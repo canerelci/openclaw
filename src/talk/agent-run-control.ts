@@ -178,7 +178,7 @@ export async function controlRealtimeVoiceAgentRun(
     active: false,
     ...(mode === "cancel" ? { aborted: false } : { queued: false }),
     reason: "no_active_run",
-    message: `There is no active OpenClaw run to ${mode === "cancel" ? "cancel" : "steer"}.`,
+    message: `There is no active Pryva run to ${mode === "cancel" ? "cancel" : "steer"}.`,
     ...controlResultPresentation,
   });
   if (!current.sessionId || (target === undefined && !isLegacyCurrent())) {
@@ -213,8 +213,8 @@ export async function controlRealtimeVoiceAgentRun(
         ? commands.abortEmbeddedAgentRun(sessionId)
         : exactOwner?.abort() === true;
     const message = aborted
-      ? "Cancelled the active OpenClaw run."
-      : "OpenClaw could not cancel the active run.";
+      ? "Cancelled the active Pryva run."
+      : "Pryva could not cancel the active run.";
     return {
       ok: aborted,
       ...controlResultContext,
@@ -318,9 +318,9 @@ export async function controlRealtimeVoiceAgentRun(
 
   const unconfirmed = outcome.transcriptCommit === "unconfirmed";
   const message = unconfirmed
-    ? "OpenClaw could not confirm that input. It was not sent again; check the conversation before retrying."
+    ? "Pryva could not confirm that input. It was not sent again; check the conversation before retrying."
     : mode === "followup"
-      ? "Queued that follow-up for the active OpenClaw run."
+      ? "Queued that follow-up for the active Pryva run."
       : "Got it. I steered the active run.";
   return {
     ok: !unconfirmed,

@@ -125,7 +125,7 @@ describe("buildCliAgentSystemPrompt", () => {
       modelDisplay: "test/model",
     });
 
-    expect(prompt).toContain("No OpenClaw tool list is injected");
+    expect(prompt).toContain("No tool list is injected");
     expect(prompt).not.toContain("exec approval-pending");
   });
 
