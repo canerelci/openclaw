@@ -281,6 +281,24 @@ export function appendModelIdentitySystemPrompt(params: {
   return base ? `${base}\n\n${line}` : line;
 }
 
+/** Condense a plugin tool's full description to a one-liner for the `## Tooling` list;
+ * core tools keep their curated `coreToolSummaries` line, which takes precedence. */
+function toShortToolSummary(description: string): string {
+  const oneLine = description.replace(/\s+/g, " ").trim();
+  if (!oneLine) {
+    return "";
+  }
+  const MAX = 180;
+  const sentenceEnd = oneLine.match(/\.(?:\s|$)/);
+  const firstSentence =
+    sentenceEnd?.index !== undefined && sentenceEnd.index < MAX
+      ? oneLine.slice(0, sentenceEnd.index + 1)
+      : oneLine;
+  return firstSentence.length > MAX
+    ? `${firstSentence.slice(0, MAX - 1).trimEnd()}…`
+    : firstSentence;
+}
+
 export function buildAgentSystemPrompt(params: {
   workspaceDir: string;
   runtimeCwd?: string;
@@ -291,6 +309,7 @@ export function buildAgentSystemPrompt(params: {
   ownerDisplaySecret?: string;
   reasoningTagHint?: boolean;
   toolNames?: string[];
+  toolSummaries?: Record<string, string>;
   /** Callable tool names used for capability guidance without listing them as visible tools. */
   capabilityToolNames?: string[];
   /** Prepared absence of managed setup after native routing and tool policy. */
@@ -390,12 +409,23 @@ export function buildAgentSystemPrompt(params: {
   const nativeCommandGuidanceLines = normalizeUniqueStringEntries(
     params.nativeCommandGuidanceLines,
   );
+  const externalToolSummaries = new Map<string, string>();
+  for (const [key, value] of Object.entries(params.toolSummaries ?? {})) {
+    const normalized = key.trim().toLowerCase();
+    if (!normalized || !value?.trim()) {
+      continue;
+    }
+    // Plugin tools ship a full model-facing description; the `## Tooling` list only
+    // needs a scannable first sentence (full text still reaches the model via schema).
+    externalToolSummaries.set(normalized, toShortToolSummary(value));
+  }
   const toolLines = buildSystemPromptToolLines({
     visibleTools,
     availableTools,
     codeModeActive: params.codeModeActive,
     promptSurface,
     acpSpawnRuntimeEnabled,
+    externalToolSummaries,
   });
   const toolSchemaDirectoryPrompt = params.toolSchemaDirectoryPrompt?.trim();
   const renderOpenClawToolWorkflowHints =
@@ -476,6 +506,9 @@ export function buildAgentSystemPrompt(params: {
     ? sanitizeForPromptLiteral(sandboxContainerWorkspace)
     : "";
   const elevated = hasExec ? params.sandboxInfo?.elevated : undefined;
+  // `/approve` guidance only ever applies when elevated exec (which produces
+  // approval-pending) is available; without it the lines are dead weight.
+  const execApprovalRelevant = elevated?.allowed === true;
   const fullAccessBlockedReasonLabel =
     elevated?.fullAccessAvailable === false
       ? formatFullAccessBlockedReason(elevated.fullAccessBlockedReason)
@@ -896,6 +929,7 @@ export function buildAgentSystemPrompt(params: {
     // A tool_call_style override owns the complete section and suppresses default guidance.
     !providerSectionOverrides.tool_call_style &&
       hasExec &&
+      execApprovalRelevant &&
       buildExecApprovalPromptGuidance({
         runtimeChannel: params.runtimeInfo?.channel,
         inlineButtonsEnabled,

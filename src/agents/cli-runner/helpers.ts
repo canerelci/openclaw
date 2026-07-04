@@ -164,6 +164,13 @@ export function buildCliAgentSystemPrompt(params: {
     }),
     runtimeInfo,
     toolNames: params.tools.map((tool) => tool.name),
+    // Carry tool descriptions so plugin tools show a summary line in `## Tooling`
+    // (they have no curated coreToolSummaries entry; without this they render name-only).
+    toolSummaries: Object.fromEntries(
+      params.tools
+        .filter((tool) => typeof tool.description === "string" && tool.description.trim())
+        .map((tool) => [tool.name, tool.description as string]),
+    ),
     messageTool: params.tools.find((tool) => tool.name.trim().toLowerCase() === "message"),
     skillsPrompt: params.skillsPrompt,
     userTimezone,

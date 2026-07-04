@@ -16,7 +16,7 @@ type ConfiguredAgentSystemPromptParams = Parameters<typeof buildAgentSystemPromp
   config?: OpenClawConfig;
   agentId?: string;
   preparedTtsPreferences?: PreparedTtsPreferences;
-  tools?: { name: string; parameters: unknown }[];
+  tools?: { name: string; parameters: unknown; description?: string }[];
   preparedModelRuntime?: Pick<PreparedModelRuntimeSnapshot, "configuredModelAliases" | "isCurrent">;
 };
 
@@ -43,6 +43,15 @@ export function buildConfiguredAgentSystemPrompt(params: ConfiguredAgentSystemPr
   if (tools) {
     renderParams.toolNames = tools.map((tool) => tool.name);
     renderParams.messageTool = tools.find((tool) => tool.name.trim().toLowerCase() === "message");
+    // Plugin tools have no curated summary; carry their descriptions into ## Tooling.
+    const summarized = tools.filter(
+      (tool) => typeof tool.description === "string" && tool.description.trim(),
+    );
+    if (summarized.length > 0) {
+      renderParams.toolSummaries = Object.fromEntries(
+        summarized.map((tool) => [tool.name, tool.description as string]),
+      );
+    }
   }
   if (!config) {
     return buildAgentSystemPrompt(renderParams);

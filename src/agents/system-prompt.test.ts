@@ -190,6 +190,47 @@ describe("buildAgentSystemPrompt", () => {
       ["Working directory: /tmp/repo-injected (tools and deliverables)."],
     ],
   ])("%s", expectPromptCase);
+  it("shows a condensed summary for plugin tools from their description", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      toolNames: ["read", "compose_brand"],
+      toolSummaries: {
+        // core tool: coreToolSummaries takes precedence over any passed summary
+        read: "IGNORED — core curated summary wins",
+        // plugin tool: long model-facing description condensed to a scannable line
+        compose_brand:
+          "Draft branded copy for a post. It tailors per platform and returns variants. Do NOT regenerate an image just to brand it.",
+      },
+    });
+    const line = prompt.split("\n").find((l) => l.startsWith("- compose_brand:")) ?? "";
+    // core tool keeps its curated line, not the passed override
+    expect(prompt).toContain("- read: Read files");
+    // plugin tool now has a description (not a bare name) …
+    expect(line).toContain("Draft branded copy for a post.");
+    // … condensed to the first sentence, dropping the long tail
+    expect(line).not.toContain("Do NOT regenerate");
+    expect(line.length).toBeLessThan(200);
+  });
+
+  it("gates exec /approve guidance on elevated exec availability", () => {
+    const base = { workspaceDir: "/tmp/openclaw", toolNames: ["exec"] } as const;
+    const withoutElevated = buildAgentSystemPrompt(base);
+    const withElevated = buildAgentSystemPrompt({
+      ...base,
+      sandboxInfo: {
+        enabled: false,
+        elevated: { allowed: true, defaultLevel: "ask", fullAccessAvailable: false },
+      },
+    });
+    // No elevated exec → no approval-pending is ever produced → hide the /approve lines.
+    expect(withoutElevated).not.toContain("exec approval-pending");
+    expect(withoutElevated).not.toContain("Never execute /approve");
+    // But the rest of the section still renders.
+    expect(withoutElevated).toContain("## Tool Call Style");
+    // Elevated available → the approval guidance is relevant and shown.
+    expect(withElevated).toContain("exec approval-pending");
+  });
+
   it("does not inspect owner identities when minimal prompts omit owner guidance", () => {
     const ownerNumbers = new Proxy(["private-owner"], {
       get() {
@@ -281,6 +322,11 @@ describe("buildAgentSystemPrompt", () => {
         docsPath: "/tmp/openclaw/docs",
         toolNames: ["tool_search"],
         capabilityToolNames: ["exec", "process", "gateway"],
+        // Approval guidance only renders when elevated exec is available.
+        sandboxInfo: {
+          enabled: false,
+          elevated: { allowed: true, defaultLevel: "ask", fullAccessAvailable: false },
+        },
       },
       ["exec approval-pending", "process(poll", "Config read: `gateway`"],
       ["docs first via `read`"],
@@ -318,7 +364,7 @@ describe("buildAgentSystemPrompt", () => {
       { toolNames: ["openclaw", "gateway"] },
       [
         "Gateway restart, config, channels, plugins, agents, models/providers: ask `openclaw`.",
-        "Update Pryva: `gateway` action update.run",
+        "Update OpenClaw: `gateway` action update.run",
       ],
       ["models/providers, updates: ask `openclaw`"],
     ],

@@ -8,6 +8,8 @@ type SystemPromptToolListParams = {
   codeModeActive?: boolean;
   promptSurface: AgentPromptSurfaceKind;
   acpSpawnRuntimeEnabled: boolean;
+  /** Condensed plugin-tool summaries; curated core summaries win on collision. */
+  externalToolSummaries?: ReadonlyMap<string, string>;
 };
 
 /** Render the visible tool list with stable core ordering and caller-provided names. */
@@ -78,7 +80,7 @@ export function buildSystemPromptToolLines(params: SystemPromptToolListParams): 
   const extraTools = [...visibleTools.keys()].filter((tool) => !toolOrder.includes(tool));
   const enabledTools = toolOrder.filter((tool) => visibleTools.has(tool));
   return [...enabledTools, ...extraTools.toSorted()].map((tool) => {
-    const summary = summaries[tool];
+    const summary = summaries[tool] ?? params.externalToolSummaries?.get(tool);
     const name = resolveToolName(tool);
     return summary ? `- ${name}: ${summary}` : `- ${name}`;
   });
