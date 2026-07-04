@@ -10,6 +10,8 @@
 
 import type {
   PluginHookAgentContext,
+  PluginHookBeforeAgentRunEvent,
+  PluginHookBeforeAgentRunResult,
   PluginHookBeforeAgentStartEvent,
   PluginHookBeforeAgentStartResult,
   PluginHookBeforePromptBuildEvent,
@@ -50,6 +52,73 @@ function seenRecently(key: string): boolean {
   }
   recentInbound.set(key, now);
   return false;
+}
+
+// RUN-level dedup for before_agent_run — the complement to the message_received
+// guard above. `seenRecently` dedups the flow-mint + Ear + ack; this dedups the
+// actual agent RUN. A spool retry that re-dispatches the SAME message can still
+// start a second agent run even after message_received skipped its mint, and that
+// duplicate run is the expensive part. Kept SEPARATE from `recentInbound` on
+// purpose: the message_received guard cannot simply move here — removing it
+// reintroduces the 5-duplicate-flow / 5-duplicate-Ear bug documented above.
+const recentAgentRuns = new Map<string, number>();
+
+/** Cheap stable hash for the run-dedup key (djb2 → base36). Not cryptographic. */
+function hashPrompt(text: string): string {
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) {
+    h = ((h << 5) + h + text.charCodeAt(i)) | 0;
+  }
+  return (h >>> 0).toString(36);
+}
+
+function seenRunRecently(key: string): boolean {
+  const now = Date.now();
+  if (recentAgentRuns.size > 500) {
+    for (const [k, t] of recentAgentRuns) {
+      if (now - t > DEDUP_WINDOW_MS) {
+        recentAgentRuns.delete(k);
+      }
+    }
+  }
+  const prev = recentAgentRuns.get(key);
+  if (prev !== undefined && now - prev < DEDUP_WINDOW_MS) {
+    return true;
+  }
+  recentAgentRuns.set(key, now);
+  return false;
+}
+
+/**
+ * before_agent_run input gate — blocks a DUPLICATE agent run for the same inbound
+ * message (spool retry / re-dispatch), the run-level complement to the
+ * message_received dedup. Scoped to genuine channel messages (senderId + channel +
+ * prompt): heartbeat / cron / system runs carry no senderId and legitimately repeat
+ * identical prompts, so they are NEVER gated. Same 5-min window + semantics as the
+ * message_received guard (an exact channel:sender repeat within the window is
+ * treated as a duplicate — matching existing behavior, not a new drop policy).
+ */
+export async function onBeforeAgentRun(
+  pipeline: PryvaPipeline,
+  event: PluginHookBeforeAgentRunEvent,
+  ctx: PluginHookAgentContext,
+): Promise<PluginHookBeforeAgentRunResult | void> {
+  const prompt = (event?.prompt || "").trim();
+  const sender = event?.senderId;
+  const channel = event?.channelId;
+  if (!prompt || !sender || !channel) {
+    return;
+  }
+  const key = `${ctx?.sessionKey ?? `${channel}:${sender}`}|${hashPrompt(prompt)}`;
+  if (!seenRunRecently(key)) {
+    return;
+  }
+  pipeline.log.debug(`blocked duplicate inbound run (channel=${channel} sender=${sender})`);
+  return {
+    outcome: "block",
+    reason: "pryva: duplicate inbound run (spool retry / re-dispatch)",
+    category: "dedup",
+  };
 }
 
 /** Run the Ear analysis stage and store the plan on the context. */

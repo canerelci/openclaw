@@ -9,11 +9,15 @@
  */
 
 import type {
+  PluginHookAfterCompactionEvent,
   PluginHookAfterToolCallEvent,
   PluginHookAgentContext,
   PluginHookAgentEndEvent,
   PluginHookLlmInputEvent,
   PluginHookLlmOutputEvent,
+  PluginHookMessageContext,
+  PluginHookMessageSentEvent,
+  PluginHookModelCallEndedEvent,
 } from "../plugins/types.js";
 import { pryvaFetch } from "./backend.js";
 import { logFlowStep, type PryvaPipeline } from "./pipeline.js";
@@ -162,6 +166,116 @@ export async function onAfterToolCall(
       error,
       latency_ms: event?.durationMs ?? null,
       metadata: { tool: toolName },
+    },
+  );
+}
+
+/**
+ * Delivery confirmation. `message_sending` logs the PRODUCED draft BEFORE the
+ * channel send; this records whether the channel actually delivered it, so the
+ * flow trace no longer goes silent at the last hop (a send that failed/timed out
+ * was previously invisible). Attributed structurally — message_sent carries runId
+ * + sessionKey on this fork; unbound → fl-unbound + WARN (never a re-minted id).
+ */
+export async function onMessageSent(
+  pipeline: PryvaPipeline,
+  event: PluginHookMessageSentEvent,
+  ctx: PluginHookMessageContext,
+): Promise<void> {
+  const success = event?.success === true;
+  logFlowStep(
+    pipeline,
+    { runId: event?.runId ?? ctx?.runId, sessionKey: event?.sessionKey ?? ctx?.sessionKey },
+    {
+      step_name: success ? "ocw_outbound_delivered" : "ocw_outbound_failed",
+      step_type: "outbound",
+      status: success ? "ok" : "error",
+      output_text: event?.content ? event.content.slice(0, 500) : null,
+      error: success ? null : (event?.error ?? "delivery failed"),
+      metadata: {
+        channel: ctx?.channelId ?? null,
+        to: event?.to ?? null,
+        message_id: event?.messageId ?? null,
+        delivered: success,
+      },
+    },
+  );
+}
+
+/**
+ * Transport-level telemetry for EVERY model call (completed AND error). This is
+ * the complement to `ocw_llm_turn` (from llm_output), NOT a duplicate:
+ *  - `ocw_llm_turn` carries the SEMANTIC record — token usage, prompt, response,
+ *    reasoning effort. `model_call_ended` has NO token usage.
+ *  - `ocw_model_call` (here) carries the PHYSICAL record — wall-clock latency,
+ *    time-to-first-byte, request/response byte sizes, transport/api, and the
+ *    failure classification on errors. `llm_output` has NONE of these, and it
+ *    fires ONLY for completed calls — so without this step every call's latency,
+ *    and every errored/timed-out/aborted call in full, was invisible in the trace.
+ * The two cannot be cleanly merged: `model_call_ended` has `callId` but
+ * `llm_output` does not, and one run can make several model calls (iterations,
+ * retries, compaction). A distinct step per call is the honest, complete shape;
+ * it also captures calls that produce no assistant text (planning-only, empty,
+ * retried) which `ocw_llm_turn` never sees. `callId` is kept in metadata so a
+ * downstream join to the semantic turn stays possible.
+ */
+export async function onModelCallEnded(
+  pipeline: PryvaPipeline,
+  event: PluginHookModelCallEndedEvent,
+): Promise<void> {
+  const isError = event?.outcome === "error";
+  logFlowStep(
+    pipeline,
+    { runId: event?.runId, sessionId: event?.sessionId, sessionKey: event?.sessionKey },
+    {
+      step_name: "ocw_model_call",
+      step_type: "llm_call",
+      status: isError ? "error" : "ok",
+      error: isError ? (event?.failureKind ?? event?.errorCategory ?? "model_call_error") : null,
+      latency_ms: event?.durationMs ?? null,
+      metadata: {
+        provider: event?.provider ?? "unknown",
+        model: event?.model ?? "unknown",
+        outcome: event?.outcome ?? "unknown",
+        call_id: event?.callId ?? null,
+        api: event?.api ?? null,
+        transport: event?.transport ?? null,
+        time_to_first_byte_ms: event?.timeToFirstByteMs ?? null,
+        request_payload_bytes: event?.requestPayloadBytes ?? null,
+        response_stream_bytes: event?.responseStreamBytes ?? null,
+        context_token_budget: event?.contextTokenBudget ?? null,
+        // Populated only on error; null on the common completed path.
+        failure_kind: event?.failureKind ?? null,
+        error_category: event?.errorCategory ?? null,
+        upstream_request_id_hash: event?.upstreamRequestIdHash ?? null,
+      },
+    },
+  );
+}
+
+/**
+ * Context-window compaction telemetry. Compaction silently drops older history to
+ * stay under the token budget — a frequent "why did it forget X" cause and a token
+ * event worth seeing in the trace. `after_compaction`'s ctx is the agent context
+ * (carries runId + sessionKey), so it attributes to the running turn's flow.
+ */
+export async function onAfterCompaction(
+  pipeline: PryvaPipeline,
+  event: PluginHookAfterCompactionEvent,
+  ctx: PluginHookAgentContext,
+): Promise<void> {
+  logFlowStep(
+    pipeline,
+    { runId: ctx?.runId, sessionId: ctx?.sessionId, sessionKey: ctx?.sessionKey },
+    {
+      step_name: "ocw_context_compacted",
+      step_type: "internal",
+      status: "ok",
+      metadata: {
+        messages_remaining: event?.messageCount ?? null,
+        compacted_count: event?.compactedCount ?? null,
+        token_count: event?.tokenCount ?? null,
+      },
     },
   );
 }
