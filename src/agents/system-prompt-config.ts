@@ -24,6 +24,7 @@ type ResolvedAgentSystemPromptConfig = Pick<
   | "modelAliasLines"
   | "memoryCitationsMode"
   | "fsWorkspaceOnly"
+  | "suppressModelIdentity"
 >;
 
 type ConfiguredAgentSystemPromptParams = AgentSystemPromptRenderParams & {
@@ -51,6 +52,9 @@ export function resolveAgentSystemPromptConfig(params: {
     modelAliasLines: buildModelAliasLines(config),
     memoryCitationsMode: config?.memory?.citations,
     fsWorkspaceOnly: resolveEffectiveToolFsWorkspaceOnly({ cfg: config, agentId }),
+    // Pryva assistants own identity via their persona and must never reveal the model, so the inline
+    // Runtime model-identity line is suppressed when the pipeline is on (matches the run-time strip).
+    suppressModelIdentity: config?.pryva?.pipeline?.enabled === true,
   };
 }
 
