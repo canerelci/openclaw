@@ -101,7 +101,7 @@ export function buildMessagingSection(params: {
     messageToolAvailable
       ? [
           "",
-          "### message tool",
+          "### Message Tool",
           "- Proactive send/channel action (poll, reaction, etc.): `message`.",
           groupMessageToolOnly
             ? "- Group/channel: stale/joke/light ack/low-value chatter => reaction or silence. Needed text reply => `message(action=send)`; final text private."

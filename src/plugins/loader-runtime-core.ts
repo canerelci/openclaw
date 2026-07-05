@@ -18,7 +18,8 @@ import {
   warnAboutUntrackedLoadedPlugins,
   warnWhenAllowlistIsOpen,
 } from "./loader-provenance.js";
-import { formatPluginFailureSummary } from "./loader-records.js";
+import { createPluginRecord, formatPluginFailureSummary } from "./loader-records.js";
+import { registerPryvaPipelineHooks } from "../pryva/index.js";
 import {
   loadRuntimePluginCandidate,
   prepareRuntimePluginConfig,
@@ -612,6 +613,28 @@ export function loadOpenClawPluginsCore(
             failedPlugins,
           )}). Run 'openclaw plugins inspect <id> --runtime --json' for runtime diagnostics and 'openclaw plugins list' for registry state. After fixing plugin code or load paths, run 'openclaw plugins reload <id>' to retry.`,
         );
+      }
+    }
+    // Native Pryva pipeline — a first-party, config-gated plugin baked into the runtime
+    // (not discovered as external code); registered through the same api.on(...) path as any
+    // plugin so the global hook runner dispatches it natively.
+    if (context.shouldActivate && options.mode !== "validate") {
+      try {
+        const pryvaRecord = createPluginRecord({
+          id: "pryva-pipeline",
+          name: "Pryva Pipeline",
+          description: "Native Pryva message pipeline (Ear/Cortex/Mouth, flow tracing, telemetry)",
+          source: "builtin",
+          origin: "bundled",
+          enabled: true,
+          configSchema: false,
+        });
+        const pryvaApi = registryBuilder.createApi(pryvaRecord, { config: context.cfg });
+        if (registerPryvaPipelineHooks(pryvaApi, context.cfg)) {
+          registry.plugins.push(pryvaRecord);
+        }
+      } catch (err) {
+        logger.warn(`[plugins] native pryva pipeline registration failed: ${String(err)}`);
       }
     }
     if (context.shouldActivate) {

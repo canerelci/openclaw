@@ -20,16 +20,12 @@ export function buildRuntimeLine(
     agent: runtimeInfo?.agentId,
     session: baseSessionKey && sanitizeForPromptLiteral(baseSessionKey),
     sessionUrl: runtimeInfo?.sessionUrl && sanitizeForPromptLiteral(runtimeInfo.sessionUrl),
-    host: runtimeInfo?.host,
-    repo: runtimeInfo?.repoRoot,
-    os: runtimeInfo?.os && `${runtimeInfo.os}${runtimeInfo.arch ? ` (${runtimeInfo.arch})` : ""}`,
-    arch: runtimeInfo?.os ? undefined : runtimeInfo?.arch,
-    node: runtimeInfo?.node,
+    // Host/dev fields (host, repo, os/arch, node, shell) are omitted: a messaging
+    // assistant runs no shell on the host, so they are pure noise in its prompt.
     active_node: runtimeInfo?.activeNode && sanitizeForPromptLiteral(runtimeInfo.activeNode),
     active_node_identity: runtimeInfo?.activeNodeIdentity,
     model: runtimeInfo?.model,
     default_model: runtimeInfo?.defaultModel,
-    shell: runtimeInfo?.shell,
     channel: runtimeChannel,
     capabilities: runtimeChannel && (normalizedRuntimeCapabilities.join(",") || "none"),
   };

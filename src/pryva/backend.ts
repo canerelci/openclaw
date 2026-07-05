@@ -1,0 +1,197 @@
+/**
+ * Pryva backend HTTP client (native).
+ *
+ * Thin, fail-open JSON client used by the native pipeline to reach the Pryva
+ * backend (Ear/Cortex/Mouth, flow logging, usage, message ingest). Attaches the
+ * platform bearer token and the X-Flow-Id header so every hop is traceable.
+ * Never throws — returns null on any error so the pipeline degrades gracefully
+ * and never blocks message delivery.
+ */
+
+import { createSubsystemLogger } from "../logging/subsystem.js";
+import type { ResolvedPryvaConfig } from "./config.js";
+
+const log = createSubsystemLogger("pryva");
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+export type PryvaFetchOptions = {
+  flowId?: string;
+  timeoutMs?: number;
+};
+
+/**
+ * POST/GET JSON to the Pryva backend. Returns the parsed JSON body, or null on
+ * any failure (network, non-2xx, parse). The path is appended to the configured
+ * backend URL under the /api/v1 prefix (matching the backend's router mount).
+ */
+export async function pryvaFetch(
+  cfg: ResolvedPryvaConfig,
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+  opts: PryvaFetchOptions = {},
+): Promise<unknown> {
+  const url = `${cfg.backendUrl}/api/v1${path.startsWith("/") ? path : `/${path}`}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${cfg.internalToken}`,
+    };
+    if (opts.flowId) {
+      headers["X-Flow-Id"] = opts.flowId;
+    }
+    const response = await globalThis.fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      log.debug(`backend ${method} ${path} -> ${response.status}`);
+      return null;
+    }
+    const text = await response.text();
+    if (!text) {
+      return null;
+    }
+    return JSON.parse(text) as unknown;
+  } catch (err) {
+    log.debug(`backend ${method} ${path} failed: ${String(err)}`);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export type PryvaClosedFetchResult = { ok: true; body: unknown } | { ok: false; reason: string };
+
+/**
+ * Fail-closed POST. The group outbound gate is the one caller: a missing,
+ * non-2xx, or unparseable answer is a refusal, not a skip. Does not throw.
+ */
+export async function pryvaFetchClosed(
+  cfg: ResolvedPryvaConfig,
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+  opts: PryvaFetchOptions = {},
+): Promise<PryvaClosedFetchResult> {
+  const url = `${cfg.backendUrl}/api/v1${path.startsWith("/") ? path : `/${path}`}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${cfg.internalToken}`,
+    };
+    if (opts.flowId) {
+      headers["X-Flow-Id"] = opts.flowId;
+    }
+    const response = await globalThis.fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      log.debug(`backend ${method} ${path} -> ${response.status}`);
+      return { ok: false, reason: readClosedFailureReason(text) ?? "Group send refused." };
+    }
+    if (!text) {
+      return { ok: false, reason: "Group send refused." };
+    }
+    try {
+      return { ok: true, body: JSON.parse(text) as unknown };
+    } catch {
+      return { ok: false, reason: "Group send refused." };
+    }
+  } catch (err) {
+    log.debug(`backend ${method} ${path} failed closed: ${String(err)}`);
+    return { ok: false, reason: "Group send refused: backend unreachable." };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function readClosedFailureReason(text: string): string | undefined {
+  if (!text) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(text) as { reason?: unknown; detail?: unknown };
+    if (typeof parsed.reason === "string" && parsed.reason.trim()) {
+      return parsed.reason.trim();
+    }
+    if (typeof parsed.detail === "string" && parsed.detail.trim()) {
+      return parsed.detail.trim();
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+export type PryvaQuotaRefusal = { quotaRefused: true; status: 402; detail: string };
+
+/**
+ * Quota-aware fetch for callers that must distinguish "backend said 402" from
+ * "backend unreachable". Returns the parsed body on 2xx, a PryvaQuotaRefusal on
+ * 402, or null on any other failure (network, non-2xx, parse). Only the ear
+ * caller uses this — every other caller is fail-open and uses pryvaFetch.
+ */
+export async function pryvaFetchQuotaAware(
+  cfg: ResolvedPryvaConfig,
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+  opts: PryvaFetchOptions = {},
+): Promise<unknown | PryvaQuotaRefusal> {
+  const url = `${cfg.backendUrl}/api/v1${path.startsWith("/") ? path : `/${path}`}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${cfg.internalToken}`,
+    };
+    if (opts.flowId) {
+      headers["X-Flow-Id"] = opts.flowId;
+    }
+    const response = await globalThis.fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (response.status === 402) {
+      let detail = "Account quota exceeded. Please check your dashboard.";
+      try {
+        const errorBody = (await response.json()) as { detail?: string };
+        if (typeof errorBody?.detail === "string") {
+          detail = errorBody.detail;
+        }
+      } catch {
+        // FastAPI always returns JSON for HTTPException, but degrade gracefully.
+      }
+      return { quotaRefused: true, status: 402, detail } satisfies PryvaQuotaRefusal;
+    }
+    if (!response.ok) {
+      log.debug(`backend ${method} ${path} -> ${response.status}`);
+      return null;
+    }
+    const text = await response.text();
+    if (!text) {
+      return null;
+    }
+    return JSON.parse(text) as unknown;
+  } catch (err) {
+    log.debug(`backend ${method} ${path} failed: ${String(err)}`);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}

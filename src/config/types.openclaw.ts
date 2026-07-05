@@ -79,6 +79,22 @@ type ConfigAuthoringOverrides = {
   proxy?: ProxyConfig;
 };
 
+/** Pryva platform integration (native message pipeline): backend + pipeline toggles. */
+export type PryvaConfig = {
+  /** Base URL of the Pryva backend, e.g. "http://127.0.0.1:8080". */
+  backendUrl?: string;
+  /** Platform/internal bearer token used to authenticate backend calls. */
+  internalToken?: string;
+  /** Native message pipeline toggle + tuning. */
+  pipeline?: {
+    enabled?: boolean;
+    disableEar?: boolean;
+    disableCortex?: boolean;
+    disableMouth?: boolean;
+    disableFastAck?: boolean;
+  };
+};
+
 /** Top-level OpenClaw config, retaining authoring contracts outside the current schema. */
 export type OpenClawConfig = Omit<SchemaConfig, keyof ConfigAuthoringOverrides> &
   ConfigAuthoringOverrides;

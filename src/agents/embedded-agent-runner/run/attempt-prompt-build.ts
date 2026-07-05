@@ -324,14 +324,21 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
     );
   }
   // Keep current model identity after the stable system cache boundary.
+  // Pryva assistants own identity via their persona and must never reveal the model, so the
+  // model-identity line is suppressed (and any existing one stripped) when the pipeline is on.
+  const suppressModelIdentity =
+    (attempt.config ?? getRuntimeConfig())?.pryva?.pipeline?.enabled === true;
   const modelAwareSystemPrompt = isSettledTurnFinalization
     ? systemPromptText
     : appendModelIdentitySystemPrompt({
         systemPrompt:
-          buildModelIdentityPromptLine(input.runtimeModel) && systemPromptText.trim().length > 0
+          !suppressModelIdentity &&
+          buildModelIdentityPromptLine(input.runtimeModel) &&
+          systemPromptText.trim().length > 0
             ? ensureSystemPromptCacheBoundary(systemPromptText)
             : systemPromptText,
         model: input.runtimeModel,
+        suppress: suppressModelIdentity,
       });
   if (modelAwareSystemPrompt !== systemPromptText) {
     setSystemPrompt(modelAwareSystemPrompt);

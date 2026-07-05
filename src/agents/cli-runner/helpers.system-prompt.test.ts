@@ -255,7 +255,7 @@ describe("buildCliAgentSystemPrompt", () => {
 
     expect(prompt).toContain("channel=telegram");
     expect(prompt).not.toContain("Telegram rich ON");
-    expect(prompt).not.toContain("### message tool");
+    expect(prompt).not.toContain("### Message Tool");
   });
 
   it("requires an explicit message target when the CLI turn policy requires one", () => {
