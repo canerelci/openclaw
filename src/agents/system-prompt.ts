@@ -647,7 +647,20 @@ export function buildModelIdentityPromptLine(model?: string): string | undefined
 export function appendModelIdentitySystemPrompt(params: {
   systemPrompt: string;
   model?: string;
+  /**
+   * When true (the Pryva pipeline is enabled), the assistant's identity is owned entirely by its
+   * injected persona, which forbids revealing that it is a model/AI. A "Current model identity: … if
+   * asked what model you are, answer with this value" line directly contradicts that, so strip any
+   * such line and never assert one. Gated (not hard-removed) so upstream keeps the line by default.
+   */
+  suppress?: boolean;
 }): string {
+  if (params.suppress) {
+    return params.systemPrompt
+      .split(/\r?\n/u)
+      .filter((candidate) => !candidate.trimStart().startsWith(MODEL_IDENTITY_PREFIX))
+      .join("\n");
+  }
   const line = buildModelIdentityPromptLine(params.model);
   if (!line) {
     return params.systemPrompt;

@@ -823,15 +823,20 @@ export async function prepareCliRunContext(
   // dynamic suffix, not the cached prefix, for marker-free hook overrides — otherwise an idle
   // turn's prefix (O + identity) diverges from an active media turn's prefix (O) and breaks
   // prompt caching. Skip empty prompts and turns with no identity line, which need no boundary.
+  // Pryva assistants own identity via their persona and must never reveal the model, so the
+  // model-identity line is suppressed (and any existing one stripped) when the pipeline is on.
+  const suppressModelIdentity = params.config?.pryva?.pipeline?.enabled === true;
   systemPrompt = isSideQuestion
     ? systemPromptWithReplacements
     : appendModelIdentitySystemPrompt({
         systemPrompt:
+          !suppressModelIdentity &&
           buildModelIdentityPromptLine(modelDisplay) &&
           systemPromptWithReplacements.trim().length > 0
             ? ensureSystemPromptCacheBoundary(systemPromptWithReplacements)
             : systemPromptWithReplacements,
         model: modelDisplay,
+        suppress: suppressModelIdentity,
       });
   const systemPromptReport = buildSystemPromptReport({
     source: "run",

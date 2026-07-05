@@ -8,6 +8,7 @@ import { resolveAgentPromptSurfaceForSessionKey } from "./prompt-surface.js";
 import { buildSubagentSystemPrompt } from "./subagent-system-prompt.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./system-prompt-cache-boundary.js";
 import {
+  appendModelIdentitySystemPrompt,
   buildAgentBootstrapSystemContext,
   buildAgentBootstrapSystemPromptSections,
   buildAgentSystemPrompt,
@@ -122,6 +123,26 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain(
       "Current model identity: openai/gpt-5.5. If asked what model you are, answer with this value for the current run.",
     );
+  });
+
+  it("suppresses and strips the model identity when the persona owns identity (Pryva)", () => {
+    const withIdentity = appendModelIdentitySystemPrompt({
+      systemPrompt: "You are a person.",
+      model: "xai/grok-4-1-fast",
+    });
+    // Default (upstream): the model-identity line is appended.
+    expect(withIdentity).toContain("Current model identity: xai/grok-4-1-fast");
+
+    // suppress (Pryva pipeline on): no identity is appended, and any existing one is stripped, so a
+    // persona-driven assistant never reveals the model — while non-identity content is preserved.
+    const suppressed = appendModelIdentitySystemPrompt({
+      systemPrompt: withIdentity,
+      model: "xai/grok-4-1-fast",
+      suppress: true,
+    });
+    expect(suppressed).not.toContain("Current model identity:");
+    expect(suppressed).not.toContain("If asked what model you are");
+    expect(suppressed).toContain("You are a person.");
   });
 
   it("omits extended sections in minimal prompt mode", () => {

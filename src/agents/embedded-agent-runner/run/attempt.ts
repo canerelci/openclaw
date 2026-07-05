@@ -4010,12 +4010,18 @@ export async function runEmbeddedAttempt(
         // suffix, not the cached prefix — otherwise an idle turn's prefix (O + identity)
         // diverges from an active media turn's prefix (O) and breaks prompt caching. Skip
         // empty prompts (raw/gateway runs) and turns with no identity line, which need none.
+        // Pryva assistants own identity via their persona and must never reveal the model, so the
+        // model-identity line is suppressed (and any existing one stripped) when the pipeline is on.
+        const suppressModelIdentity = params.config?.pryva?.pipeline?.enabled === true;
         const modelAwareSystemPrompt = appendModelIdentitySystemPrompt({
           systemPrompt:
-            buildModelIdentityPromptLine(runtimeInfo.model) && systemPromptText.trim().length > 0
+            !suppressModelIdentity &&
+            buildModelIdentityPromptLine(runtimeInfo.model) &&
+            systemPromptText.trim().length > 0
               ? ensureSystemPromptCacheBoundary(systemPromptText)
               : systemPromptText,
           model: runtimeInfo.model,
+          suppress: suppressModelIdentity,
         });
         if (modelAwareSystemPrompt !== systemPromptText) {
           setActiveSessionSystemPrompt(modelAwareSystemPrompt);
