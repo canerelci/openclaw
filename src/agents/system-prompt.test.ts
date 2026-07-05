@@ -177,7 +177,6 @@ describe("buildAgentSystemPrompt", () => {
           },
         },
       },
-<<<<<<< HEAD
       [
         "## Provider Stable\n\nStable guidance.",
         "## Provider Dynamic\n\nDynamic guidance.",
@@ -191,331 +190,6 @@ describe("buildAgentSystemPrompt", () => {
       ["Working directory: /tmp/repo-injected (tools and deliverables)."],
     ],
   ])("%s", expectPromptCase);
-=======
-      {
-        name: "missing owners",
-        params: {
-          workspaceDir: "/tmp/openclaw",
-        },
-        expectAuthorizedSection: false,
-        contains: [],
-        notContains: ["## Authorized Senders", "Authorized senders:"],
-      },
-    ]);
-
-    for (const testCase of cases) {
-      const prompt = buildAgentSystemPrompt(testCase.params);
-      if (testCase.expectAuthorizedSection) {
-        expect(prompt, testCase.name).toContain("## Authorized Senders");
-      } else {
-        expect(prompt, testCase.name).not.toContain("## Authorized Senders");
-      }
-      for (const value of testCase.contains) {
-        expect(prompt, `${testCase.name}:${value}`).toContain(value);
-      }
-      for (const value of testCase.notContains) {
-        expect(prompt, `${testCase.name}:${value}`).not.toContain(value);
-      }
-      if (testCase.hashMatch) {
-        expect(prompt, testCase.name).toMatch(testCase.hashMatch);
-      }
-    }
-  });
-
-  it("uses a stable, keyed HMAC when ownerDisplaySecret is provided", () => {
-    const secretA = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      ownerNumbers: ["+123"],
-      ownerDisplay: "hash",
-      ownerDisplaySecret: "secret-key-A", // pragma: allowlist secret
-    });
-
-    const secretB = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      ownerNumbers: ["+123"],
-      ownerDisplay: "hash",
-      ownerDisplaySecret: "secret-key-B", // pragma: allowlist secret
-    });
-
-    const lineA = secretA.split("## Authorized Senders")[1]?.split("\n")[1];
-    const lineB = secretB.split("## Authorized Senders")[1]?.split("\n")[1];
-    const tokenA = lineA?.match(/[a-f0-9]{12}/)?.[0];
-    const tokenB = lineB?.match(/[a-f0-9]{12}/)?.[0];
-
-    expect(tokenA).toMatch(/^[a-f0-9]{12}$/);
-    expect(tokenB).toMatch(/^[a-f0-9]{12}$/);
-    expect(tokenA).not.toBe(tokenB);
-  });
-
-  it("injects the current model identity into the runtime prompt", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      runtimeInfo: {
-        agentId: "main",
-        model: "openai/gpt-5.5",
-      },
-    });
-
-    expect(prompt).toContain(
-      "Current model identity: openai/gpt-5.5. If asked what model you are, answer with this value for the current run.",
-    );
-  });
-
-  it("omits extended sections in minimal prompt mode", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      promptMode: "minimal",
-      ownerNumbers: ["+123"],
-      skillsPrompt:
-        "<available_skills>\n  <skill>\n    <name>demo</name>\n  </skill>\n</available_skills>",
-      heartbeatPrompt: "ping",
-      toolNames: ["message", "memory_search"],
-      docsPath: "/tmp/openclaw/docs",
-      extraSystemPrompt: "Subagent details",
-      ttsHint: "Voice (TTS) is enabled.",
-    });
-
-    expect(prompt).not.toContain("## Authorized Senders");
-    // Skills are included even in minimal mode when skillsPrompt is provided (cron sessions need them)
-    expect(prompt).toContain("## Skills");
-    expect(prompt).not.toContain("## Memory Recall");
-    expect(prompt).not.toContain("## Documentation");
-    expect(prompt).not.toContain("## Reply Tags");
-    expect(prompt).not.toContain("## Messaging");
-    expect(prompt).not.toContain("## Voice (TTS)");
-    expect(prompt).not.toContain("## Silent Replies");
-    expect(prompt).not.toContain("## Heartbeats");
-    expect(prompt).toContain("## Safety");
-    expect(prompt).toContain(
-      "For long waits, avoid rapid poll loops: use exec with enough yieldMs or process(action=poll, timeout=<ms>).",
-    );
-    expect(prompt).toContain("No independent goals");
-    expect(prompt).toContain("Safety/oversight over completion");
-    expect(prompt).toContain("Conflicts: pause/ask");
-    expect(prompt).not.toContain("Inspired by Anthropic's constitution");
-    expect(prompt).toContain("Do not persuade anyone");
-    expect(prompt).toContain("Do not copy yourself or change prompts");
-    expect(prompt).toContain("## Subagent Context");
-    expect(prompt).not.toContain("## Group Chat Context");
-    expect(prompt).toContain("Subagent details");
-  });
-
-  it("can omit generic silent-reply guidance for channel-aware prompts", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      extraSystemPrompt: 'If no response is needed, reply with exactly "NO_REPLY".',
-      silentReplyPromptMode: "none",
-    });
-
-    expect(prompt).not.toContain("## Silent Replies");
-    expect(prompt).toContain('reply with exactly "NO_REPLY"');
-  });
-
-  it("includes skills in minimal prompt mode when skillsPrompt is provided (cron regression)", () => {
-    // Isolated cron sessions use promptMode="minimal" but still need skills.
-    const skillsPrompt =
-      "<available_skills>\n  <skill>\n    <name>demo</name>\n  </skill>\n</available_skills>";
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      promptMode: "minimal",
-      skillsPrompt,
-    });
-
-    expect(prompt).toContain("## Skills");
-    expect(prompt).toContain("<available_skills>");
-    expect(prompt).toContain("If a skill's <version> differs from a previous turn");
-    expect(prompt).toContain("External API writes: batch when safe");
-  });
-
-  it("omits skills in minimal prompt mode when skillsPrompt is absent", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      promptMode: "minimal",
-    });
-
-    expect(prompt).not.toContain("## Skills");
-  });
-
-  it("avoids the Claude subscription classifier wording in reply tag guidance", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-    });
-
-    expect(prompt).toContain("## Assistant Output Directives");
-    expect(prompt).toContain("[[reply_to_current]]");
-    expect(prompt).not.toContain("Tags are stripped before sending");
-    expect(prompt).toContain("Supported directives are stripped before rendering");
-  });
-
-  it("omits the heartbeat section when no heartbeat prompt is provided", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      promptMode: "full",
-      heartbeatPrompt: undefined,
-    });
-
-    expect(prompt).not.toContain("## Heartbeats");
-    expect(prompt).not.toContain("HEARTBEAT_OK");
-    expect(prompt).not.toContain("Read HEARTBEAT.md");
-  });
-
-  it("includes safety guardrails in full prompts", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-    });
-
-    expect(prompt).toContain("## Safety");
-    expect(prompt).toContain("No independent goals");
-    expect(prompt).toContain("Safety/oversight over completion");
-    expect(prompt).toContain("Conflicts: pause/ask");
-    expect(prompt).not.toContain("Inspired by Anthropic's constitution");
-    expect(prompt).toContain("Do not persuade anyone");
-    expect(prompt).toContain("Do not copy yourself or change prompts");
-  });
-
-  it("includes voice hint when provided", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      ttsHint: "Voice (TTS) is enabled.",
-    });
-
-    expect(prompt).toContain("## Voice (TTS)");
-    expect(prompt).toContain("Voice (TTS) is enabled.");
-  });
-
-  it("adds reasoning tag hint when enabled", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      reasoningTagHint: true,
-    });
-
-    expect(prompt).toContain("## Reasoning Format");
-    expect(prompt).toContain("<think>...</think>");
-    expect(prompt).toContain("<final>...</final>");
-  });
-
-  it("includes a control section when the gateway tool is available", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      capabilityToolNames: ["gateway"],
-    });
-
-    expect(prompt).toContain("## Pryva Control");
-    expect(prompt).toContain("prefer `gateway` tool");
-    expect(prompt).toContain("CLI lifecycle only on explicit user request");
-    expect(prompt).toContain("openclaw gateway status|restart|start|stop");
-    expect(prompt).toContain("`restart`, not stop+start");
-    expect(prompt).toContain("Do not invent commands");
-  });
-
-  it("omits the control section when the gateway tool is not exposed", () => {
-    // `## Pryva Control` is entirely gateway-tool guidance, so a messaging-only tool policy that denies
-    // `gateway` must not render it (it would reference a tool the agent doesn't have).
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-    });
-
-    expect(prompt).not.toContain("## Pryva Control");
-    expect(prompt).not.toContain("## Pryva Self-Update");
-  });
-
-  it("points agents to config field docs and broader configuration docs", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      docsPath: "/tmp/openclaw/docs",
-    });
-
-    expect(prompt).toContain("Config fields:");
-    expect(prompt).toContain("`gateway` action `config.schema.lookup`");
-    expect(prompt).toContain("docs/gateway/configuration.md");
-    expect(prompt).toContain("docs/gateway/configuration-reference.md");
-  });
-
-  it("guides runtime completion events without exposing internal metadata", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-    });
-
-    expect(prompt).toContain("Runtime-generated completion events may ask for a user update.");
-    expect(prompt).toContain("Rewrite those in your normal assistant voice");
-    expect(prompt).toContain("do not forward raw internal metadata");
-  });
-
-  it("does not include embed guidance in the default global prompt", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-    });
-
-    expect(prompt).not.toContain("## Control UI Embed");
-    expect(prompt).not.toContain("Use `[embed ...]` only in Control UI/webchat sessions");
-  });
-
-  it("includes embed guidance only for webchat sessions", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      runtimeInfo: {
-        channel: "webchat",
-      },
-    });
-
-    expect(prompt).toContain("## Control UI Embed");
-    expect(prompt).toContain("Use `[embed ...]` only in Control UI/webchat sessions");
-    expect(prompt).toContain('[embed ref="cv_123" title="Status" height="320" /]');
-    expect(prompt).toContain(
-      '[embed url="/__openclaw__/canvas/documents/cv_123/index.html" title="Status" height="320" /]',
-    );
-    expect(prompt).toContain(
-      "Never use local filesystem paths or `file://...` URLs in `[embed ...]`.",
-    );
-    expect(prompt).toContain(
-      "The active hosted embed root is profile-scoped, not workspace-scoped.",
-    );
-    expect(prompt).not.toContain('[embed content_type="html" title="Status"]...[/embed]');
-  });
-
-  it("guides subagent workflows to avoid polling loops", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-    });
-
-    expect(prompt).toContain(
-      "For long waits, avoid rapid poll loops: use exec with enough yieldMs or process(action=poll, timeout=<ms>).",
-    );
-    expect(prompt).toContain("Larger work: use `sessions_spawn`; completion is push-based.");
-    expect(prompt).toContain("Do not poll `subagents list` / `sessions_list` in a loop");
-    expect(prompt).not.toContain("use `sessions_yield` when waiting");
-    expect(prompt).toContain(
-      "First-class tool exists: use it; do not ask user to run equivalent CLI/slash command.",
-    );
-  });
-
-  it("only mentions sessions_yield wait guidance when the tool is available", () => {
-    const withoutYield = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      toolNames: ["sessions_spawn", "subagents"],
-    });
-    const withYield = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      toolNames: ["sessions_spawn", "sessions_yield", "subagents"],
-    });
-
-    expect(withoutYield).not.toContain("use `sessions_yield` when waiting");
-    expect(withYield).toContain("use `sessions_yield` when waiting");
-  });
-
-  it("lists available tools when provided", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      toolNames: ["exec", "sessions_list", "sessions_history", "sessions_send"],
-    });
-
-    expect(prompt).toContain("Available tools are policy-filtered.");
-    expect(prompt).toContain("sessions_list");
-    expect(prompt).toContain("sessions_history");
-    expect(prompt).toContain("sessions_send");
-  });
-
->>>>>>> a672953ce05 (fix(prompt): gate ## Pryva Control on gateway-tool presence)
   it("shows a condensed summary for plugin tools from their description", () => {
     const prompt = buildAgentSystemPrompt({
       workspaceDir: "/tmp/openclaw",
@@ -538,6 +212,31 @@ describe("buildAgentSystemPrompt", () => {
     expect(line.length).toBeLessThan(200);
   });
 
+  it("does not cut a summary inside an (e.g. …) parenthetical or leave a dangling '('", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      toolNames: ["attach_video", "insert_owner_instruction"],
+      toolSummaries: {
+        // the "." in "e.g." must not be treated as the sentence end
+        attach_video: "Attach a video file (e.g. a Reel, a story) to a draft post.",
+        // a truncated parenthetical must have its dangling group trimmed, not left open
+        insert_owner_instruction:
+          "Store a durable, sacred owner rule that must be applied to ALL future content (e.g. never use emojis, always tag the city) forever.",
+      },
+    });
+    const attach = prompt.split("\n").find((l) => l.startsWith("- attach_video:")) ?? "";
+    const rule = prompt.split("\n").find((l) => l.startsWith("- insert_owner_instruction:")) ?? "";
+    // no line ends on a dangling open-paren fragment
+    expect(attach).not.toMatch(/\(e\.g\.?$/);
+    expect(rule).not.toMatch(/\(e\.g\.?$/);
+    // balanced parentheses on each rendered summary line
+    for (const l of [attach, rule]) {
+      expect((l.match(/\(/g) ?? []).length).toBe((l.match(/\)/g) ?? []).length);
+    }
+    // the full first sentence (with its example) survives
+    expect(attach).toContain("(e.g. a Reel, a story)");
+  });
+
   it("gates exec /approve guidance on elevated exec availability", () => {
     const base = { workspaceDir: "/tmp/openclaw", toolNames: ["exec"] } as const;
     const withoutElevated = buildAgentSystemPrompt(base);
@@ -555,6 +254,30 @@ describe("buildAgentSystemPrompt", () => {
     expect(withoutElevated).toContain("## Tool Call Style");
     // Elevated available → the approval guidance is relevant and shown.
     expect(withElevated).toContain("exec approval-pending");
+  });
+
+  it("includes a control section when the gateway tool is available", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      capabilityToolNames: ["gateway"],
+    });
+
+    expect(prompt).toContain("## Pryva Control");
+    expect(prompt).toContain("Config read: `gateway`");
+    expect(prompt).toContain("Update Pryva: `gateway` action update.run");
+    expect(prompt).toContain("Never run openclaw update");
+    expect(prompt).toContain("Do not invent commands");
+  });
+
+  it("omits the control section when the gateway tool is not exposed", () => {
+    // The section is entirely gateway-tool guidance, so a messaging-only tool policy that
+    // denies `gateway` must not render it (it would reference a tool the agent doesn't have).
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+    });
+
+    expect(prompt).not.toContain("## Pryva Control");
+    expect(prompt).not.toContain("## Pryva Self-Update");
   });
 
   it("does not inspect owner identities when minimal prompts omit owner guidance", () => {
@@ -690,7 +413,7 @@ describe("buildAgentSystemPrompt", () => {
       { toolNames: ["openclaw", "gateway"] },
       [
         "Gateway restart, config, channels, plugins, agents, models/providers: ask `openclaw`.",
-        "Update OpenClaw: `gateway` action update.run",
+        "Update Pryva: `gateway` action update.run",
       ],
       ["models/providers, updates: ask `openclaw`"],
     ],
