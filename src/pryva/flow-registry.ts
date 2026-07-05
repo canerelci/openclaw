@@ -42,6 +42,13 @@ export type FlowSource =
   // as the assistant's own first-person monologue. Minted (never resumed) at
   // before_agent_start when the scheduled self-wake fires — see inner-voice.ts.
   | "inner_voice"
+  // `scheduled_todo` = a due/recurring item from the agent's own todo queue firing
+  // a turn at its scheduled time. The backend owns the timer and wakes the main
+  // session via the gateway `sessions.send` seam (pryvaFlowId → attached as an
+  // external flow, like NCW continuation), with the todo brief framed as an
+  // inner-voice thought. A genuine new trigger — distinct from `inner_voice` only
+  // so the flow log can tell "self-originated thought" from "a scheduled work item".
+  | "scheduled_todo"
   // `ncw_completion` is only ever a flow_resume source (an NCW agent finishing
   // re-enters the SAME flow — it is never a new trigger).
   | "ncw_completion"
