@@ -537,7 +537,7 @@ function buildMessagingSection(params: {
     params.availableTools.has("message")
       ? [
           "",
-          "### message tool",
+          "### Message Tool",
           "- Use `message` for proactive sends + channel actions (polls, reactions, etc.).",
           discordGroupMessageToolOnly
             ? "- Discord group/thread etiquette: a mention plus message-tool-only delivery does not require visible output. For stale threads, jokes, lightweight acknowledgements, or low-value chatter, prefer a reaction or no channel message; post only when you have concrete value to add."
@@ -1464,17 +1464,11 @@ export function buildRuntimeLine(
     runtimeInfo?.agentId ? `agent=${runtimeInfo.agentId}` : "",
     runtimeInfo?.sessionKey ? `session=${sanitizeForPromptLiteral(runtimeInfo.sessionKey)}` : "",
     runtimeInfo?.sessionId ? `sessionId=${sanitizeForPromptLiteral(runtimeInfo.sessionId)}` : "",
-    runtimeInfo?.host ? `host=${runtimeInfo.host}` : "",
-    runtimeInfo?.repoRoot ? `repo=${runtimeInfo.repoRoot}` : "",
-    runtimeInfo?.os
-      ? `os=${runtimeInfo.os}${runtimeInfo?.arch ? ` (${runtimeInfo.arch})` : ""}`
-      : runtimeInfo?.arch
-        ? `arch=${runtimeInfo.arch}`
-        : "",
-    runtimeInfo?.node ? `node=${runtimeInfo.node}` : "",
+    // Host/dev fields (host, repo, os/arch, node, shell) are omitted: a messaging assistant runs no
+    // shell on the host, so they are pure noise in its prompt. Session identity + channel + model
+    // stay; the runtimeInfo type still carries the host fields for callers that log them elsewhere.
     runtimeInfo?.model ? `model=${runtimeInfo.model}` : "",
     runtimeInfo?.defaultModel ? `default_model=${runtimeInfo.defaultModel}` : "",
-    runtimeInfo?.shell ? `shell=${runtimeInfo.shell}` : "",
     runtimeChannel ? `channel=${runtimeChannel}` : "",
     runtimeChannel
       ? `capabilities=${

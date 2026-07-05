@@ -944,7 +944,7 @@ describe("buildAgentSystemPrompt", () => {
     const channelOptions = listDeliverableMessageChannels().join("|");
 
     expect(prompt).toContain("message: Send messages and channel actions");
-    expect(prompt).toContain("### message tool");
+    expect(prompt).toContain("### Message Tool");
     expect(prompt).toContain("Use `message` for proactive sends + channel actions");
     expect(prompt).toContain("For `action=send`, include `target` and `message`.");
     expect(prompt).toContain(
@@ -1135,7 +1135,7 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain("Reply in current session → automatically routes");
     expect(prompt).toContain("Telegram rich text is available");
     expect(prompt).toContain("headings, tables");
-    expect(prompt).not.toContain("### message tool");
+    expect(prompt).not.toContain("### Message Tool");
   });
 
   it("uses Slack interactive reply hints instead of generic inline button config guidance", () => {
@@ -1384,10 +1384,12 @@ describe("buildAgentSystemPrompt", () => {
     expect(line).toContain("agent=work");
     expect(line).toContain("session=agent:main:subagent:runtime-check");
     expect(line).toContain("sessionId=23ae7fce-3c27-4a51-b58e-d800d8ca091f");
-    expect(line).toContain("host=host");
-    expect(line).toContain("repo=/repo");
-    expect(line).toContain("os=macOS (arm64)");
-    expect(line).toContain("node=v20");
+    // Host/dev fields (host, repo, os/arch, node, shell) are omitted from the runtime line — a
+    // messaging assistant runs no shell on the host, so they are noise.
+    expect(line).not.toContain("host=");
+    expect(line).not.toContain("repo=");
+    expect(line).not.toContain("os=");
+    expect(line).not.toContain("node=");
     expect(line).toContain("model=anthropic/claude");
     expect(line).toContain("default_model=anthropic/claude-opus-4-5");
     expect(line).toContain("channel=telegram");
