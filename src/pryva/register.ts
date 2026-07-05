@@ -42,7 +42,18 @@ export function registerPryvaPipelineHooks(api: OpenClawPluginApi, cfg: OpenClaw
     return false;
   }
 
-  const pipeline = createPryvaPipeline(resolved, cfg);
+  // Capture the bundled-plugin session-turn scheduler (cron-backed one-shot self-wake) so the
+  // inner-voice primitive can schedule/cancel a delayed self-wake. Bundled-only surface (this
+  // plugin is `origin: "bundled"`); undefined-safe — if absent, inner-voice scheduling no-ops.
+  const workflow = api.session?.workflow;
+  const pipeline = createPryvaPipeline(resolved, cfg, {
+    ...(workflow?.scheduleSessionTurn
+      ? { scheduleSessionTurn: (params) => workflow.scheduleSessionTurn(params) }
+      : {}),
+    ...(workflow?.unscheduleSessionTurnsByTag
+      ? { unscheduleSessionTurnsByTag: (params) => workflow.unscheduleSessionTurnsByTag(params) }
+      : {}),
+  });
 
   // inbound_claim runs BEFORE the agent: for a trivial short message the backend
   // quick-reply may answer it directly (handled), skipping the whole agent turn.

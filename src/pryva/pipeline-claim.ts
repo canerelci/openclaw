@@ -25,6 +25,7 @@ import type {
 } from "../plugins/types.js";
 import { pryvaFetch } from "./backend.js";
 import { UNBOUND_FLOW_ID } from "./flow-registry.js";
+import { parseInnerVoiceDirective, scheduleInnerVoice } from "./inner-voice.js";
 import { logFlowStep, type PryvaPipeline } from "./pipeline.js";
 
 /** Only consult the backend for short messages — trivial/short-circuitable turns
@@ -62,12 +63,26 @@ export async function onInboundClaim(
       is_group: event?.isGroup === true,
     },
     { flowId, timeoutMs: QUICK_REPLY_TIMEOUT_MS },
-  )) as { claim?: unknown; reply?: unknown } | null;
+  )) as { claim?: unknown; reply?: unknown; inner_voice?: unknown } | null;
 
   const claimed = result?.claim === true;
   const reply = typeof result?.reply === "string" ? result.reply.trim() : "";
   if (!claimed || !reply) {
     return; // pass → the agent handles it as normal
+  }
+
+  // First-contact claim may carry an inner-voice directive: greet now, then wake ourselves a beat
+  // later to ease into the work if the owner stays quiet. Present only on a FIRST-CONTACT claim;
+  // fail-open (absent/invalid → nothing scheduled). Fire-and-forget so it never delays the reply.
+  const directive = parseInnerVoiceDirective(result?.inner_voice);
+  if (directive && sessionKey) {
+    const channel = event?.channel ?? ctx?.channelId ?? undefined;
+    void scheduleInnerVoice(pipeline, {
+      sessionKey,
+      directive,
+      ...(binding?.flowId ? { parentFlowId: binding.flowId } : {}),
+      ...(channel ? { channel } : {}),
+    });
   }
 
   // Trace the short-circuit so operators can see a turn was answered without the agent.

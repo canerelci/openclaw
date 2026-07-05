@@ -23,6 +23,7 @@ import { fastAckText } from "./ack.js";
 import { pryvaFetch } from "./backend.js";
 import type { PipelineInboundContext } from "./context.js";
 import { generateFlowId, normalizeTrigger, type FlowSource } from "./flow-registry.js";
+import { cancelInnerVoice, parseInnerVoiceDirective, scheduleInnerVoice } from "./inner-voice.js";
 import { logFlowStep, sleep, type PryvaPipeline } from "./pipeline.js";
 import { currentTimeContext } from "./time.js";
 
@@ -271,6 +272,12 @@ export async function onMessageReceived(
   // telemetry/outbound step resolve back to THIS flow structurally.
   const sessionKey = ctx?.sessionKey ?? pipeline.ctxStore.key(conversationId, channel, from);
   const runId = ctx?.runId;
+
+  // Cancel-on-inbound: the owner re-engaged, so any pending inner-voice self-wake for this session
+  // is moot — drop the scheduled wake and its source hint. Cheap no-op unless one is actually armed.
+  // Runs before we mint this message's flow (attributes the cancel to the parent/greeting flow).
+  void cancelInnerVoice(pipeline, sessionKey);
+
   const flowId = generateFlowId();
 
   // Provisional source: internal channel → internal_chat; otherwise contact by
@@ -363,6 +370,18 @@ export async function onMessageReceived(
         await runEar(pipeline, entry);
         const intent = typeof entry.earPlan?.intent === "string" ? entry.earPlan.intent : "";
         pipeline.log.debug(`ear intent=${intent} [${flowId}]`);
+        // Ear-path inner-voice directive (first-contact greeting that reached the Ear instead of
+        // being claimed): schedule the same self-wake. Mutually exclusive with the claim path per
+        // inbound. Fail-open — absent/invalid → nothing scheduled.
+        const directive = parseInnerVoiceDirective(entry.earPlan?.inner_voice);
+        if (directive) {
+          void scheduleInnerVoice(pipeline, {
+            sessionKey,
+            directive,
+            parentFlowId: flowId,
+            channel,
+          });
+        }
       } catch (err) {
         pipeline.log.debug(`ear failed: ${String(err)}`);
       } finally {
@@ -463,9 +482,11 @@ export async function onBeforeAgentStart(
     return;
   }
 
-  // 3b. Session-keyed source hint (D6 queue defer): the queue deferred an UNRELATED message on this
-  //     session as a followup — mint a NEW flow tagged `followup` (with the parent it was deferred
-  //     behind), ahead of the bridge so it does NOT fold into the parent flow.
+  // 3b. Session-keyed source hint: a NEW flow must be minted for the next run on this session,
+  //     ahead of the bridge so it does NOT fold into the parent flow. Two producers today: the
+  //     queue deferring an UNRELATED message as a `followup` (D6), and a scheduled inner-voice
+  //     self-wake firing (source `inner_voice`). The hint's `trigger` (e.g. `first_contact_followup`)
+  //     names the origin beyond the coarse source; falls back to the run's own trigger.
   const sessionHint = pipeline.registry.consumeSourceHintBySession(sessionKey);
   if (sessionHint) {
     const flowId = generateFlowId();
@@ -478,7 +499,7 @@ export async function onBeforeAgentStart(
       ...(sessionHint.parentFlowId ? { parentFlowId: sessionHint.parentFlowId } : {}),
     });
     logFlowStart(pipeline, flowId, sessionHint.source, {
-      trigger: ctx?.trigger,
+      trigger: sessionHint.trigger ?? ctx?.trigger,
       runId,
       sessionKey,
       channel,
