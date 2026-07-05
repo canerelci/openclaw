@@ -37,6 +37,11 @@ export type FlowSource =
   | "cron"
   | "followup"
   | "system"
+  // `inner_voice` = the agent waking ITSELF with a self-originated thought (no
+  // inbound from anyone). Mechanically a self-wake like heartbeat/cron, but framed
+  // as the assistant's own first-person monologue. Minted (never resumed) at
+  // before_agent_start when the scheduled self-wake fires — see inner-voice.ts.
+  | "inner_voice"
   // `ncw_completion` is only ever a flow_resume source (an NCW agent finishing
   // re-enters the SAME flow — it is never a new trigger).
   | "ncw_completion"
@@ -94,10 +99,11 @@ export class FlowRegistry {
    * started for that session and its before_agent_start re-enters the flow.
    */
   private readonly pendingExternalBySession = new Map<string, PendingExternal>();
-  /** sessionKey → forced source (+ parent) for the next run on that session (D6 followup defer). */
+  /** sessionKey → forced source (+ parent, + trigger tag) for the next run on that session
+   *  (D6 followup defer; inner-voice self-wake). */
   private readonly pendingSourceHintBySession = new Map<
     string,
-    { source: FlowSource; parentFlowId?: string }
+    { source: FlowSource; parentFlowId?: string; trigger?: string }
   >();
   private lastGc = Date.now();
 
@@ -172,21 +178,35 @@ export class FlowRegistry {
     this.sourceHints.set(runId, source);
   }
 
-  /** Force the source (+ parent flow) a fresh run for a SESSION will be minted with (D6): when the
-   *  queue defers an unrelated message as a followup, the NEXT run on that session must mint a NEW
-   *  flow tagged `followup` (with the parent flow it was deferred behind) — NOT fold into the
-   *  parent via the session bridge. Consumed at before_agent_start ahead of the bridge. */
-  setSourceHintBySession(sessionKey: string, source: FlowSource, parentFlowId?: string): void {
-    this.pendingSourceHintBySession.set(sessionKey, { source, parentFlowId });
+  /** Force the source (+ parent flow, + trigger tag) a fresh run for a SESSION will be minted with:
+   *  when the queue defers an unrelated message as a followup (D6), or a scheduled inner-voice
+   *  self-wake fires (inner-voice.ts), the NEXT run on that session must mint a NEW flow with
+   *  `source` (and the parent flow it hangs off) — NOT fold into the parent via the session bridge.
+   *  `trigger` overrides the logged trigger tag (e.g. `first_contact_followup`) so the flow's origin
+   *  is named beyond the coarse source. Consumed at before_agent_start ahead of the bridge. */
+  setSourceHintBySession(
+    sessionKey: string,
+    source: FlowSource,
+    parentFlowId?: string,
+    trigger?: string,
+  ): void {
+    this.pendingSourceHintBySession.set(sessionKey, { source, parentFlowId, trigger });
   }
 
   consumeSourceHintBySession(
     sessionKey: string | undefined,
-  ): { source: FlowSource; parentFlowId?: string } | undefined {
+  ): { source: FlowSource; parentFlowId?: string; trigger?: string } | undefined {
     if (!sessionKey) return undefined;
     const h = this.pendingSourceHintBySession.get(sessionKey);
     if (h) this.pendingSourceHintBySession.delete(sessionKey);
     return h;
+  }
+
+  /** Drop a pending session source hint that will no longer fire (cancel-on-inbound for a scheduled
+   *  inner-voice wake whose owner re-engaged before it ran). Idempotent — no-op if none pending. */
+  clearSourceHintBySession(sessionKey: string | undefined): void {
+    if (!sessionKey) return;
+    this.pendingSourceHintBySession.delete(sessionKey);
   }
 
   /** Take + clear a pending external-flow attachment, if any (idempotent). */
@@ -305,8 +325,14 @@ export type PryvaFlowRegistryGlobal = {
     source: FlowSource,
     parentFlowId?: string,
   ): void;
-  /** D6: tag the next run on this session as a `followup` (deferred behind parentFlowId). */
-  setSourceHintBySession(sessionKey: string, source: FlowSource, parentFlowId?: string): void;
+  /** D6: tag the next run on this session with `source` (deferred behind parentFlowId); `trigger`
+   *  optionally overrides the logged trigger tag. */
+  setSourceHintBySession(
+    sessionKey: string,
+    source: FlowSource,
+    parentFlowId?: string,
+    trigger?: string,
+  ): void;
 };
 
 const GLOBAL_KEY = "__pryvaFlowRegistry";
@@ -358,8 +384,8 @@ export function publishFlowRegistry(registry: FlowRegistry): PryvaFlowRegistryGl
       registry.bindExternalFlow(runId, flowId, source, parentFlowId),
     attachExternalFlowBySession: (sessionKey, flowId, source, parentFlowId) =>
       registry.attachExternalFlowBySession(sessionKey, flowId, source, parentFlowId),
-    setSourceHintBySession: (sessionKey, source, parentFlowId) =>
-      registry.setSourceHintBySession(sessionKey, source, parentFlowId),
+    setSourceHintBySession: (sessionKey, source, parentFlowId, trigger) =>
+      registry.setSourceHintBySession(sessionKey, source, parentFlowId, trigger),
   };
   try {
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = surface;

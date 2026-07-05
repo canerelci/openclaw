@@ -14,6 +14,11 @@
 
 import type { OpenClawConfig } from "../config/config.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import type {
+  PluginSessionTurnScheduleParams,
+  PluginSessionTurnUnscheduleByTagParams,
+  PluginSessionTurnUnscheduleByTagResult,
+} from "../plugins/types.js";
 import { pryvaFetch } from "./backend.js";
 import type { ResolvedPryvaConfig } from "./config.js";
 import { PipelineContextStore } from "./context.js";
@@ -38,6 +43,17 @@ export type PryvaPipeline = {
   /** Structural flow identity (D1). Single source of truth for flow_id attribution. */
   registry: FlowRegistry;
   log: ReturnType<typeof createSubsystemLogger>;
+  /**
+   * Bundled-plugin session-turn scheduler (cron-backed one-shot self-wake), captured from the plugin
+   * api at registration. The inner-voice primitive (inner-voice.ts) uses it to schedule a delayed
+   * self-wake and to cancel it on inbound. Undefined when the api did not expose it (non-bundled
+   * plugin / tests) → inner-voice scheduling is then a silent no-op (fail-open, like every other
+   * backend directive).
+   */
+  scheduleSessionTurn?: (params: PluginSessionTurnScheduleParams) => Promise<unknown>;
+  unscheduleSessionTurnsByTag?: (
+    params: PluginSessionTurnUnscheduleByTagParams,
+  ) => Promise<PluginSessionTurnUnscheduleByTagResult>;
 };
 
 function resolveTimezone(openClawConfig: OpenClawConfig | undefined): string {
@@ -48,6 +64,12 @@ function resolveTimezone(openClawConfig: OpenClawConfig | undefined): string {
 export function createPryvaPipeline(
   cfg: ResolvedPryvaConfig,
   openClawConfig: OpenClawConfig | undefined,
+  scheduler?: {
+    scheduleSessionTurn?: (params: PluginSessionTurnScheduleParams) => Promise<unknown>;
+    unscheduleSessionTurnsByTag?: (
+      params: PluginSessionTurnUnscheduleByTagParams,
+    ) => Promise<PluginSessionTurnUnscheduleByTagResult>;
+  },
 ): PryvaPipeline {
   // ONE registry for the whole process, reused across plugin hot-reloads — a
   // fresh registry per reload would orphan in-flight runs' bindings → fl-unbound
@@ -63,6 +85,12 @@ export function createPryvaPipeline(
     ctxStore: new PipelineContextStore(),
     registry,
     log: createSubsystemLogger("pryva"),
+    ...(scheduler?.scheduleSessionTurn
+      ? { scheduleSessionTurn: scheduler.scheduleSessionTurn }
+      : {}),
+    ...(scheduler?.unscheduleSessionTurnsByTag
+      ? { unscheduleSessionTurnsByTag: scheduler.unscheduleSessionTurnsByTag }
+      : {}),
   };
 }
 
