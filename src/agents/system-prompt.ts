@@ -344,6 +344,12 @@ export function buildAgentSystemPrompt(params: {
   workspaceDir: string;
   runtimeCwd?: string;
   reasoningLevel?: ReasoningLevel;
+  /**
+   * When true (Pryva pipeline on), the inline Runtime-section model-identity line is not emitted —
+   * the persona owns identity and must never reveal the model. Mirrors the suppress path in
+   * appendModelIdentitySystemPrompt so both the built prompt AND the run-time append stay clean.
+   */
+  suppressModelIdentity?: boolean;
   extraSystemPrompt?: string;
   ownerNumbers?: string[];
   ownerDisplay?: OwnerIdDisplay;
@@ -413,7 +419,9 @@ export function buildAgentSystemPrompt(params: {
 }) {
   const promptMode = params.promptMode ?? "full";
   const runtimeInfo = params.runtimeInfo;
-  const modelIdentityLine = buildModelIdentityPromptLine(runtimeInfo?.model);
+  const modelIdentityLine = params.suppressModelIdentity
+    ? undefined
+    : buildModelIdentityPromptLine(runtimeInfo?.model);
   // For "none" mode, return only the model-identity line (if any). The product
   // identity is owned by the injected persona, not asserted here.
   if (promptMode === "none") {

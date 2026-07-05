@@ -76,5 +76,8 @@ export function buildConfiguredAgentSystemPrompt(params: ConfiguredAgentSystemPr
     modelAliasLines: includeFullSections ? buildModelAliasLines(preparedModelRuntime) : [],
     memoryCitationsMode: config.memory?.citations,
     fsWorkspaceOnly: resolveEffectiveToolFsWorkspaceOnly({ cfg: config, agentId }),
+    // Pryva assistants own identity via their persona and must never reveal the model, so the
+    // inline Runtime model-identity line is suppressed when the pipeline is on.
+    suppressModelIdentity: config?.pryva?.pipeline?.enabled === true,
   });
 }
