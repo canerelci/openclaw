@@ -210,6 +210,16 @@ const OPTIONAL_BOOTSTRAP_FILENAMES: ReadonlySet<string> = new Set([
   DEFAULT_HEARTBEAT_FILENAME,
 ]);
 
+// Bootstrap files that are OMITTED from the loaded set when absent, rather than surfaced with
+// `missing:true` (which renders a "[MISSING] Expected at: …" marker in the prompt). Reserved for
+// optional files a deployment may legitimately never provide: MEMORY.md (may not exist yet) and
+// IDENTITY.md (a persona can own identity via its own context). AGENTS/SOUL/USER/HEARTBEAT stay
+// visible-when-absent so their absence remains diagnosable.
+const OMIT_WHEN_ABSENT_BOOTSTRAP_FILES: ReadonlySet<string> = new Set([
+  DEFAULT_MEMORY_FILENAME,
+  DEFAULT_IDENTITY_FILENAME,
+]);
+
 export const WORKSPACE_VANISHED_ERROR_CODE = "WORKSPACE_VANISHED";
 
 export class WorkspaceVanishedError extends Error {
@@ -1079,9 +1089,13 @@ export async function loadWorkspaceBootstrapFiles(dir: string): Promise<Workspac
 
   const result: WorkspaceBootstrapFile[] = [];
   for (const entry of entries) {
+    // Optional files that are OMITTED (not flagged "[MISSING]") when absent. MEMORY.md has always
+    // behaved this way; IDENTITY.md joins it because a deployment may intentionally not provide one
+    // (e.g. the persona already carries identity via its own context) — an absent optional identity
+    // file should drop silently, not inject a "[MISSING] Expected at: …" marker into the cached prompt.
     if (
-      entry.name === DEFAULT_MEMORY_FILENAME &&
-      !(await exactWorkspaceEntryExists(resolvedDir, DEFAULT_MEMORY_FILENAME))
+      OMIT_WHEN_ABSENT_BOOTSTRAP_FILES.has(entry.name) &&
+      !(await exactWorkspaceEntryExists(resolvedDir, entry.name))
     ) {
       continue;
     }

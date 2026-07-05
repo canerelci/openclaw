@@ -166,11 +166,12 @@ describe("resolveBootstrapFilesForRun", () => {
       warn: (message) => warnings.push(message),
     });
 
+    // IDENTITY.md (like MEMORY.md) is omitted when absent rather than surfaced as a "[MISSING]" entry,
+    // so it does not appear for this bare temp workspace.
     expect(files.map((file) => path.relative(workspaceDir, file.path))).toEqual([
       "AGENTS.md",
       "SOUL.md",
       "TOOLS.md",
-      "IDENTITY.md",
       "USER.md",
       "HEARTBEAT.md",
       "BOOTSTRAP.md",
