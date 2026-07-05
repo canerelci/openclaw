@@ -1165,11 +1165,19 @@ export function buildAgentSystemPrompt(params: {
         fallback: [],
       }),
       ...safetySection,
-      "## Pryva Control",
-      "Do not invent commands.",
-      "Config/restart: prefer `gateway` tool (`config.schema.lookup|get|patch|apply`, `restart`).",
-      "CLI lifecycle only on explicit user request: `openclaw gateway status|restart|start|stop`.",
-      "`restart`, not stop+start.",
+      // `## Pryva Control` is entirely about the `gateway` tool (config/restart/CLI lifecycle), so it is
+      // dead weight — and misleading — when that tool is not exposed (e.g. a messaging-only tool policy
+      // that denies `gateway`). Gate it on the same `hasGateway && !isMinimal` condition as the sibling
+      // `## Pryva Self-Update` block below so both self-admin sections appear together or not at all.
+      hasGateway && !isMinimal ? "## Pryva Control" : "",
+      hasGateway && !isMinimal
+        ? [
+            "Do not invent commands.",
+            "Config/restart: prefer `gateway` tool (`config.schema.lookup|get|patch|apply`, `restart`).",
+            "CLI lifecycle only on explicit user request: `openclaw gateway status|restart|start|stop`.",
+            "`restart`, not stop+start.",
+          ].join("\n")
+        : "",
       "",
       ...skillsSection,
       ...skillWorkshopSection,

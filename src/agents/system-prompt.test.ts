@@ -257,9 +257,10 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain("<final>...</final>");
   });
 
-  it("includes an OpenClaw control section", () => {
+  it("includes a control section when the gateway tool is available", () => {
     const prompt = buildAgentSystemPrompt({
       workspaceDir: "/tmp/openclaw",
+      capabilityToolNames: ["gateway"],
     });
 
     expect(prompt).toContain("## Pryva Control");
@@ -268,6 +269,17 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain("openclaw gateway status|restart|start|stop");
     expect(prompt).toContain("`restart`, not stop+start");
     expect(prompt).toContain("Do not invent commands");
+  });
+
+  it("omits the control section when the gateway tool is not exposed", () => {
+    // `## Pryva Control` is entirely gateway-tool guidance, so a messaging-only tool policy that denies
+    // `gateway` must not render it (it would reference a tool the agent doesn't have).
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+    });
+
+    expect(prompt).not.toContain("## Pryva Control");
+    expect(prompt).not.toContain("## Pryva Self-Update");
   });
 
   it("points agents to config field docs and broader configuration docs", () => {
