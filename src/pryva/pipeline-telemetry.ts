@@ -285,20 +285,37 @@ export async function onAgentEnd(
   event: PluginHookAgentEndEvent,
   ctx: PluginHookAgentContext,
 ): Promise<void> {
-  // Only record session failures on the flow trace. Successful auto-reply
-  // capture (conversation logging) is owned by the per-flavor extensions.
-  if (event?.success) {
-    return;
+  const runId = event?.runId;
+  const sessionKey = ctx?.sessionKey;
+  // Undefined success is treated as a failure (matches the prior guard), so an unattributed end still
+  // surfaces an error step. Successful auto-reply/conversation logging stays owned by flavor extensions.
+  const failed = !event?.success;
+  if (failed) {
+    logFlowStep(
+      pipeline,
+      { runId, sessionKey },
+      {
+        step_name: "ocw_session_error",
+        step_type: "internal",
+        output_text: event?.error || "Agent session failed",
+        status: "error",
+        error: event?.error || "Unknown error",
+        latency_ms: event?.durationMs ?? null,
+      },
+    );
   }
+  // Terminal marker for the run — the backend's definitive active→idle signal. A `flow_start` has no
+  // other reliable end: a NO_REPLY/silent turn (e.g. a scheduled_todo check that finds nothing to say)
+  // produces no outbound to infer completion from, so without this the run reads as "still working".
+  // Emitted on EVERY run end (ok on success, error on failure) so the backend can flip an "assistant is
+  // working / idle" flag and drive a live activity view. Fire-and-forget via the usual flow channel.
   logFlowStep(
     pipeline,
-    { runId: event?.runId, sessionKey: ctx?.sessionKey },
+    { runId, sessionKey },
     {
-      step_name: "ocw_session_error",
+      step_name: "ocw_turn_end",
       step_type: "internal",
-      output_text: event?.error || "Agent session failed",
-      status: "error",
-      error: event?.error || "Unknown error",
+      status: failed ? "error" : "ok",
       latency_ms: event?.durationMs ?? null,
     },
   );
