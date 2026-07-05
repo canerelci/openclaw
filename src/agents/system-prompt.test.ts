@@ -400,6 +400,31 @@ describe("buildAgentSystemPrompt", () => {
     expect(line.length).toBeLessThan(200);
   });
 
+  it("does not cut a summary inside an (e.g. …) parenthetical or leave a dangling '('", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      toolNames: ["attach_video", "insert_owner_instruction"],
+      toolSummaries: {
+        // the "." in "e.g." must not be treated as the sentence end
+        attach_video: "Attach a video file (e.g. a Reel, a story) to a draft post.",
+        // a truncated parenthetical must have its dangling group trimmed, not left open
+        insert_owner_instruction:
+          "Store a durable, sacred owner rule that must be applied to ALL future content (e.g. never use emojis, always tag the city) forever.",
+      },
+    });
+    const attach = prompt.split("\n").find((l) => l.startsWith("- attach_video:")) ?? "";
+    const rule = prompt.split("\n").find((l) => l.startsWith("- insert_owner_instruction:")) ?? "";
+    // no line ends on a dangling open-paren fragment
+    expect(attach).not.toMatch(/\(e\.g\.?$/);
+    expect(rule).not.toMatch(/\(e\.g\.?$/);
+    // balanced parentheses on each rendered summary line
+    for (const l of [attach, rule]) {
+      expect((l.match(/\(/g) ?? []).length).toBe((l.match(/\)/g) ?? []).length);
+    }
+    // the full first sentence (with its example) survives
+    expect(attach).toContain("(e.g. a Reel, a story)");
+  });
+
   it("gates exec /approve guidance on elevated exec availability", () => {
     const base = { workspaceDir: "/tmp/openclaw", toolNames: ["exec"] } as const;
     const withoutElevated = buildAgentSystemPrompt(base);

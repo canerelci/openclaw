@@ -685,17 +685,40 @@ export function appendModelIdentitySystemPrompt(params: {
  * that ships a long paragraph does not bloat the prompt. Core tools keep their curated
  * `coreToolSummaries` line, which takes precedence over this.
  */
+// Abbreviations whose trailing "." is NOT a sentence end. Without this, condensing to the first
+// sentence cuts inside a parenthetical example ("… (e.g. a Reel)") right after "e.g", leaving a
+// dangling unclosed "(" in the tool summary.
+const SENTENCE_ABBREV_TAIL = /(?:\be\.g|\bi\.e|\betc|\bvs|\bcf|\bal|\bno|\bfig|\bapprox)$/i;
+
 function toShortToolSummary(description: string): string {
   const oneLine = description.replace(/\s+/g, " ").trim();
   if (!oneLine) {
     return "";
   }
   const MAX = 180;
-  const sentenceEnd = oneLine.match(/\.(?:\s|$)/);
-  const firstSentence =
-    sentenceEnd?.index !== undefined && sentenceEnd.index < MAX
-      ? oneLine.slice(0, sentenceEnd.index + 1)
-      : oneLine;
+  // First real sentence end: a "." followed by whitespace/EOL that is not the "." of an abbreviation.
+  let firstSentence = oneLine;
+  const sentenceEnd = /\.(?:\s|$)/g;
+  for (let m = sentenceEnd.exec(oneLine); m; m = sentenceEnd.exec(oneLine)) {
+    if (m.index >= MAX) {
+      break;
+    }
+    if (SENTENCE_ABBREV_TAIL.test(oneLine.slice(0, m.index))) {
+      continue;
+    }
+    firstSentence = oneLine.slice(0, m.index + 1);
+    break;
+  }
+  // Safety net: never end on a truncated parenthetical — a dangling "(" reads as broken text. Drop the
+  // unmatched group and any trailing connector punctuation ("… (e.g" → "…").
+  const opens = (firstSentence.match(/\(/g) ?? []).length;
+  const closes = (firstSentence.match(/\)/g) ?? []).length;
+  if (opens > closes) {
+    firstSentence = firstSentence
+      .slice(0, firstSentence.lastIndexOf("("))
+      .replace(/[\s(,;:–—-]+$/, "")
+      .trim();
+  }
   return firstSentence.length > MAX
     ? `${firstSentence.slice(0, MAX - 1).trimEnd()}…`
     : firstSentence;
