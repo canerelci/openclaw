@@ -16,8 +16,53 @@ const TRIVIAL_ACK_RE =
 const TR_HINT_RE =
   /[ığşçöüİĞŞÇÖÜ]|\b(bir|bunu|için|nas[ıi]l|gönderi|görsel|hikaye|istiyorum|olsun|şöyle|öneri|haz[ıi]rla|lütfen)\b/i;
 
-const ACK_TR = ["Bir bakayım…", "Hemen bakıyorum…", "Bakıyorum, birazdan dönerim…"];
-const ACK_EN = ["Let me look into this…", "On it — one sec…", "Checking, back in a moment…"];
+// Deliberately varied so a real person shows through, not a bot repeating one
+// stock line. Each pool means the same thing ("got it — checking, give me a
+// moment") in many natural registers; the picker never repeats back-to-back.
+const ACK_TR = [
+  "Bir bakayım…",
+  "Hemen bakıyorum…",
+  "Tamam, bakıyorum…",
+  "Anladım, bir bakayım…",
+  "Bir saniye, kontrol ediyorum…",
+  "Şuna bir bakıp döneyim…",
+  "Hemen ilgileniyorum…",
+  "Bir dakika, kontrol edeyim…",
+  "Tamam, birazdan dönerim…",
+  "Hallediyorum, bir saniye…",
+  "Kontrol ediyorum, az bekle…",
+  "Bakıyorum, biraz zaman ver…",
+];
+const ACK_EN = [
+  "Let me look into this…",
+  "On it — one sec…",
+  "Checking, back in a moment…",
+  "Give me a sec…",
+  "Got it, taking a look…",
+  "One moment, let me check…",
+  "Sure, looking into it…",
+  "On it — back shortly…",
+  "Let me take a look…",
+  "Hang on, checking…",
+  "Alright, on it…",
+  "Give me a moment to check…",
+];
+
+// Last ack we emitted (across both pools). Kept process-local so consecutive
+// messages don't draw the same line twice in a row — the single most visible
+// "this is a bot" tell. Best-effort only; not persisted across restarts.
+let lastAck: string | null = null;
+
+function pickAck(pool: readonly string[]): string {
+  let choice = pool[Math.floor(Math.random() * pool.length)];
+  // One deterministic step-over is enough to break an immediate repeat without
+  // biasing the distribution toward any particular neighbour.
+  if (choice === lastAck && pool.length > 1) {
+    choice = pool[(pool.indexOf(choice) + 1) % pool.length];
+  }
+  lastAck = choice;
+  return choice;
+}
 
 /** Short localized ack for a non-trivial message, or null to stay silent. */
 export function fastAckText(content: string): string | null {
@@ -29,7 +74,7 @@ export function fastAckText(content: string): string | null {
     return null;
   }
   const pool = TR_HINT_RE.test(s) ? ACK_TR : ACK_EN;
-  return pool[Math.floor(Math.random() * pool.length)];
+  return pickAck(pool);
 }
 
 /**
