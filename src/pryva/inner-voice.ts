@@ -29,6 +29,9 @@ import { logFlowStep, type PryvaPipeline } from "./pipeline.js";
 
 /** Cron-name tag for the scheduled wake; cancel-on-inbound removes by this tag. No `:` allowed. */
 export const INNER_VOICE_TAG = "pryva-inner-voice";
+/** Cron-name tag for a backend-driven scheduled-todo self-turn — distinct from inner-voice so a
+ *  cancel-on-inbound for one never removes the other. No `:` allowed. */
+export const SCHEDULED_TODO_TAG = "pryva-scheduled-todo";
 
 const INNER_VOICE_SOURCE: FlowSource = "inner_voice";
 
@@ -93,9 +96,96 @@ export function buildInnerVoiceMessage(thought: string): string {
 const pendingCancelOnInbound = new Set<string>();
 
 /**
- * Schedule a one-shot inner-voice self-wake for a session. Fail-open at every step: no scheduler
- * (non-bundled api / tests) or a failed schedule simply does nothing. On success, pre-sets the
- * session source hint so the wake mints a NEW `inner_voice` flow (parented to the greeting flow).
+ * Schedule a one-shot self-originated turn on a session — the generic primitive behind BOTH the
+ * first-contact inner-voice and a backend-driven scheduled-todo. Frames `thought` as the assistant's
+ * own monologue and schedules a cron-backed agentTurn (NOT an inbound → no message_received, so no
+ * Ear / contact_message / fast_ack), then pre-sets the session source hint so the wake mints a NEW
+ * flow tagged `source` (parented to `parentFlowId`). Fail-open: no scheduler / failed schedule → does
+ * nothing, returns false. Returns true when armed.
+ */
+export async function scheduleSelfWake(
+  pipeline: PryvaPipeline,
+  opts: {
+    sessionKey: string;
+    /** Raw first-person impulse; framed here into the self-thought wrapper (never pre-frame it). */
+    thought: string;
+    source: FlowSource;
+    reason: string;
+    tag: string;
+    parentFlowId?: string;
+    delaySeconds?: number;
+    cancelOnInbound?: boolean;
+    channel?: string;
+    agentId?: string;
+  },
+): Promise<boolean> {
+  const { sessionKey, thought, source, reason, tag, parentFlowId } = opts;
+  if (!sessionKey || !thought || !pipeline.scheduleSessionTurn) {
+    pipeline.log.debug(
+      `self-wake: skipped (no ${!sessionKey ? "session" : !thought ? "thought" : "scheduler"})`,
+    );
+    return false;
+  }
+
+  const delaySeconds = opts.delaySeconds ?? DEFAULT_DELAY_SECONDS;
+  const delayMs = Math.max(MIN_DELAY_MS, Math.round(delaySeconds * 1000));
+  const message = buildInnerVoiceMessage(thought);
+  const params: PluginSessionTurnScheduleParams = {
+    sessionKey,
+    message,
+    delayMs,
+    deleteAfterRun: true,
+    deliveryMode: "announce",
+    tag,
+    ...(opts.agentId ? { agentId: opts.agentId } : {}),
+  };
+
+  let handle: unknown;
+  try {
+    handle = await pipeline.scheduleSessionTurn(params);
+  } catch (err) {
+    pipeline.log.debug(`self-wake: schedule failed: ${String(err)}`);
+    return false;
+  }
+  if (!handle) {
+    // Scheduler declined (cron unavailable / not committed) — do NOT set the hint, so no stale
+    // source hint can be picked up by a later unrelated run on this session.
+    pipeline.log.debug("self-wake: scheduler returned no handle; not armed");
+    return false;
+  }
+
+  // Armed: tag the wake's future run as a NEW `source` flow (parented), ahead of the session bridge,
+  // with `reason` as the logged trigger (e.g. `first_contact_followup` / `todo:<id>`).
+  pipeline.registry.setSourceHintBySession(sessionKey, source, parentFlowId, reason);
+  if (opts.cancelOnInbound) {
+    pendingCancelOnInbound.add(sessionKey);
+  }
+
+  logFlowStep(
+    pipeline,
+    { sessionKey, ...(parentFlowId ? { flowId: parentFlowId } : {}) },
+    {
+      step_name: `ocw_${source}_scheduled`,
+      step_type: "trigger",
+      status: "ok",
+      metadata: {
+        reason,
+        delay_seconds: delaySeconds,
+        cancel_on_inbound: opts.cancelOnInbound === true,
+        session_key: sessionKey,
+        ...(opts.channel ? { channel: opts.channel } : {}),
+      },
+    },
+  );
+  pipeline.log.debug(
+    `self-wake: armed (${source}/${reason}, +${Math.round(delayMs / 1000)}s) [${sessionKey}]`,
+  );
+  return true;
+}
+
+/**
+ * Schedule a one-shot inner-voice self-wake (first-contact silence follow-up). Thin wrapper over
+ * scheduleSelfWake with source=`inner_voice` + the inner-voice cron tag.
  */
 export async function scheduleInnerVoice(
   pipeline: PryvaPipeline,
@@ -107,71 +197,18 @@ export async function scheduleInnerVoice(
     agentId?: string;
   },
 ): Promise<void> {
-  const { sessionKey, directive, parentFlowId } = opts;
-  if (!sessionKey || !pipeline.scheduleSessionTurn) {
-    pipeline.log.debug(
-      `inner-voice: scheduling skipped (no ${sessionKey ? "scheduler" : "session"})`,
-    );
-    return;
-  }
-
-  const delayMs = Math.max(MIN_DELAY_MS, Math.round(directive.delaySeconds * 1000));
-  const message = buildInnerVoiceMessage(directive.thought);
-  const params: PluginSessionTurnScheduleParams = {
-    sessionKey,
-    message,
-    delayMs,
-    deleteAfterRun: true,
-    deliveryMode: "announce",
+  await scheduleSelfWake(pipeline, {
+    sessionKey: opts.sessionKey,
+    thought: opts.directive.thought,
+    source: INNER_VOICE_SOURCE,
+    reason: opts.directive.reason,
     tag: INNER_VOICE_TAG,
+    delaySeconds: opts.directive.delaySeconds,
+    cancelOnInbound: opts.directive.cancelOnInbound,
+    ...(opts.parentFlowId ? { parentFlowId: opts.parentFlowId } : {}),
+    ...(opts.channel ? { channel: opts.channel } : {}),
     ...(opts.agentId ? { agentId: opts.agentId } : {}),
-  };
-
-  let handle: unknown;
-  try {
-    handle = await pipeline.scheduleSessionTurn(params);
-  } catch (err) {
-    pipeline.log.debug(`inner-voice: schedule failed: ${String(err)}`);
-    return;
-  }
-  if (!handle) {
-    // Scheduler declined (cron unavailable / not committed) — do NOT set the hint, so no stale
-    // source hint can be picked up by a later unrelated run on this session.
-    pipeline.log.debug("inner-voice: scheduler returned no handle; not armed");
-    return;
-  }
-
-  // Armed: tag the wake's future run as a NEW inner_voice flow (parented to the greeting), ahead of
-  // the session bridge, and use `reason` as the logged trigger (e.g. `first_contact_followup`).
-  pipeline.registry.setSourceHintBySession(
-    sessionKey,
-    INNER_VOICE_SOURCE,
-    parentFlowId,
-    directive.reason,
-  );
-  if (directive.cancelOnInbound) {
-    pendingCancelOnInbound.add(sessionKey);
-  }
-
-  logFlowStep(
-    pipeline,
-    { sessionKey, ...(parentFlowId ? { flowId: parentFlowId } : {}) },
-    {
-      step_name: "ocw_inner_voice_scheduled",
-      step_type: "trigger",
-      status: "ok",
-      metadata: {
-        reason: directive.reason,
-        delay_seconds: directive.delaySeconds,
-        cancel_on_inbound: directive.cancelOnInbound,
-        session_key: sessionKey,
-        ...(opts.channel ? { channel: opts.channel } : {}),
-      },
-    },
-  );
-  pipeline.log.debug(
-    `inner-voice: armed (${directive.reason}, +${Math.round(delayMs / 1000)}s) [${sessionKey}]`,
-  );
+  });
 }
 
 /**
@@ -205,4 +242,64 @@ export async function cancelInnerVoice(pipeline: PryvaPipeline, sessionKey: stri
     },
   );
   pipeline.log.debug(`inner-voice: cancelled (owner re-engaged) [${sessionKey}]`);
+}
+
+// ---- Gateway seam: a write-scoped in-process self-turn trigger for the backend ----
+//
+// The backend cannot use the `openclaw cron add` RPC (it needs operator.admin, which a headless
+// tenant device can't be granted). It CAN call `sessions.send` (operator.write). So the pryva
+// pipeline publishes this self-turn function on globalThis; the core gateway `sessions.send` handler
+// invokes it for an `innerVoice` request instead of delivering an inbound — running the framed thought
+// as a self-turn IN-PROCESS (via the host cron service scheduleSessionTurn), which needs no operator
+// scope. Same globalThis pattern as `__pryvaFlowRegistry`; a no-op read when the plugin isn't loaded.
+
+/** Request shape the gateway sessions.send innerVoice branch passes to the published surface. */
+export type PryvaSelfTurnRequest = {
+  sessionKey: string;
+  /** Raw impulse; the surface frames it. */
+  thought: string;
+  /** Flow source for the minted turn (default `scheduled_todo`). */
+  source?: string;
+  reason?: string;
+  parentFlowId?: string;
+  /** Fire delay; defaults to 0 (→ the 1s cron floor) so a due todo fires promptly. */
+  delaySeconds?: number;
+  channel?: string;
+};
+export type PryvaSelfTurnFn = (req: PryvaSelfTurnRequest) => Promise<boolean>;
+
+const SELF_TURN_GLOBAL_KEY = "__pryvaSelfTurn";
+
+/** Publish the self-turn trigger on globalThis, capturing the pipeline. Call after the pipeline (and
+ *  its scheduleSessionTurn handle) exists. Non-fatal in a locked-down runtime. */
+export function publishSelfTurn(pipeline: PryvaPipeline): void {
+  const fn: PryvaSelfTurnFn = async (req) => {
+    if (!req?.sessionKey || !req?.thought) {
+      return false;
+    }
+    const source = (req.source as FlowSource) || "scheduled_todo";
+    return scheduleSelfWake(pipeline, {
+      sessionKey: req.sessionKey,
+      thought: req.thought,
+      source,
+      reason:
+        req.reason ||
+        (typeof req.source === "string" && req.source ? req.source : "scheduled_todo"),
+      tag: SCHEDULED_TODO_TAG,
+      // A scheduled todo is due work, not a greeting follow-up: it should NOT cancel on inbound.
+      cancelOnInbound: false,
+      delaySeconds: req.delaySeconds ?? 0,
+      ...(req.parentFlowId ? { parentFlowId: req.parentFlowId } : {}),
+      ...(req.channel ? { channel: req.channel } : {}),
+    });
+  };
+  try {
+    (globalThis as Record<string, unknown>)[SELF_TURN_GLOBAL_KEY] = fn;
+  } catch {
+    // locked-down runtime — non-fatal; the seam just won't fire.
+  }
+}
+
+export function getPryvaSelfTurn(): PryvaSelfTurnFn | null {
+  return ((globalThis as Record<string, unknown>)[SELF_TURN_GLOBAL_KEY] as PryvaSelfTurnFn) ?? null;
 }
