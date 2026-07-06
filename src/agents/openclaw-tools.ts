@@ -50,6 +50,7 @@ import {
   type ToolConstructionPreparationOptions,
 } from "./tool-construction-preparation.js";
 import { resolveToolLoopDetectionConfig } from "./tool-loop-detection-config.js";
+import { normalizeToolPolicyName } from "./tool-policy.js";
 import { createAgentsListTool } from "./tools/agents-list-tool.js";
 import { createAskUserTool } from "./tools/ask-user-tool.js";
 import type { AnyAgentTool } from "./tools/common.js";
@@ -637,14 +638,25 @@ export function createOpenClawTools(
     pdfTool,
   ].filter((tool): tool is AnyAgentTool => tool !== null && tool !== undefined);
   options?.recordToolPrepStage?.("openclaw-tools:core-tool-list");
-  let allTools = tools;
+  // Drop operator-disabled built-ins (config `tools.disableBuiltins`) BEFORE the
+  // taken-name set is seeded, so a plugin declaring the same name registers here
+  // instead of losing the name conflict in collection. Normalized to match the
+  // plugin conflict check. `deny` can't do this — it hides post-collection and
+  // would also drop the plugin replacement.
+  const disabledBuiltins = new Set(
+    (options?.disabledBuiltinToolNames ?? []).map(normalizeToolPolicyName),
+  );
+  const coreTools = disabledBuiltins.size
+    ? tools.filter((tool) => !disabledBuiltins.has(normalizeToolPolicyName(tool.name)))
+    : tools;
+  let allTools = coreTools;
   if (!options?.disablePluginTools) {
     allTools = [
-      ...tools,
+      ...coreTools,
       ...resolveOpenClawPluginToolsForOptions({
         options: { ...options, activeProjectKeys },
         resolvedConfig,
-        existingToolNames: new Set(tools.map((tool) => tool.name)),
+        existingToolNames: new Set(coreTools.map((tool) => tool.name)),
       }),
     ];
     options?.recordToolPrepStage?.("openclaw-tools:plugin-tools");

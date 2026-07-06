@@ -34,6 +34,7 @@ import type { AnyAgentTool } from "./agent-tools.types.js";
 import { waitForExecScope } from "./bash-process-registry.js";
 import { resolveProcessToolScopeKey } from "./bash-process-scope.js";
 import { listChannelAgentTools } from "./channel-tools.js";
+import { resolveEffectiveToolPolicy } from "./agent-tools.policy.js";
 import { resolveConversationCapabilityProfile } from "./conversation-capability-profile.js";
 import { isConversationToolAllowed } from "./conversation-tool-policy-pipeline.js";
 import { createCoreCodingTools } from "./core-coding-tools.js";
@@ -106,6 +107,15 @@ function* assembleOpenClawCodingTools(
     resolveMemoryFlushToolSetup(options);
   const cronSelfRemoveOnlyJobId =
     options?.trigger === "cron" && options.jobId?.trim() ? options.jobId.trim() : undefined;
+  // Core built-ins the operator disabled (config tools.disableBuiltins, global +
+  // agent scope merged) so a plugin may claim a built-in's name. Kept separate
+  // from capabilityProfile: this only feeds the core-tool drop in openclaw-tools.
+  // disabledBuiltins depends only on config-derived scopes, never on provider/model.
+  const { disabledBuiltins } = resolveEffectiveToolPolicy({
+    config: options?.config,
+    sessionKey: options?.sessionKey,
+    agentId: options?.agentId,
+  });
   // Prefer the already-resolved sandbox context policy. Recomputing from
   // sessionKey/config can lose the real sandbox agent when callers pass a
   // legacy alias like `main` instead of an agent session key.
@@ -368,6 +378,7 @@ function* assembleOpenClawCodingTools(
     sandboxBrowserBridgeUrl: sandbox?.browser?.bridgeUrl,
     allowHostBrowserControl: sandbox ? sandbox.browserAllowHostControl : true,
     sandboxed: Boolean(sandbox),
+    disabledBuiltinToolNames: disabledBuiltins,
     pluginToolAllowlist,
     pluginToolDenylist,
     disableMessageTool: options?.disableMessageTool || options?.swarmCollector,

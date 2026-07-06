@@ -176,6 +176,11 @@ export type OpenClawToolsOptions = {
    * already in flight.
    */
   assertCollectorWriteAuthority?: () => void;
+  /**
+   * Core built-in tool names to drop before plugin tools are collected, so a
+   * plugin may claim a name a core built-in owns (config `tools.disableBuiltins`).
+   */
+  disabledBuiltinToolNames?: string[];
   /** If true, skip plugin tool resolution and return only shipped core tools. */
   disablePluginTools?: boolean;
   /** Override or extend the default hook context used by construction-time wrapping. */

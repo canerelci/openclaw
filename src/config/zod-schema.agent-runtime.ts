@@ -545,6 +545,9 @@ const CommonToolPolicyFields = {
   /** Base tool profile applied before allow/deny lists. */
   profile: ToolProfileSchema,
   ...ToolPolicyBaseSchema.shape,
+  // Core built-ins dropped before plugin-tool collection so a plugin may claim
+  // the name (distinct from `deny`, which hides post-collection incl. the plugin).
+  disableBuiltins: z.array(z.string()).optional(),
   /** Optional tool policy overrides keyed by provider id or "provider/model". */
   byProvider: z.record(z.string(), ToolPolicyWithProfileSchema).optional(),
   /** Per-sender tool policy overrides keyed by sender identity. */

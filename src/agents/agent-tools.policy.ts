@@ -444,6 +444,12 @@ export function resolveEffectiveToolPolicy(params: {
     globalProviderPolicy: pickSandboxToolPolicy(providerPolicy),
     agentPolicy,
     agentProviderPolicy: pickSandboxToolPolicy(agentProviderPolicy),
+    // Core built-ins the agent removes before plugin-tool collection (global +
+    // agent scope merged), so a plugin may claim a built-in's name.
+    disabledBuiltins: uniqueStrings([
+      ...(globalTools?.disableBuiltins ?? []),
+      ...(agentTools?.disableBuiltins ?? []),
+    ]),
     profile,
     providerProfile: agentProviderPolicy?.profile ?? providerPolicy?.profile,
     // alsoAllow is applied at the profile stage to avoid early filtering.
