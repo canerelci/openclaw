@@ -742,6 +742,48 @@ async function handleSessionSend(params: {
     return;
   }
 
+  // Pryva self-turn seam (write-scoped): a backend-driven scheduled-todo must fire as the assistant's
+  // OWN thought, not an inbound. Routing it through chat.send (below) would ingest it as an inbound
+  // message → message_received → Ear + contact_message + fast_ack → NO_REPLY, and never deliver. Instead
+  // hand it to the in-process pryva self-turn scheduler (published on globalThis by the pipeline), which
+  // schedules a cron-backed agentTurn on this session — no inbound, and no operator.admin cron RPC (this
+  // handler is operator.write). Falls through to the normal send when the pipeline isn't loaded, so a
+  // gateway without the seam just treats `innerVoice` as a harmless no-op flag.
+  if ((p as { innerVoice?: unknown }).innerVoice === true) {
+    const selfTurn = (globalThis as Record<string, unknown>).__pryvaSelfTurn as
+      | ((req: {
+          sessionKey: string;
+          thought: string;
+          source?: string;
+          reason?: string;
+          parentFlowId?: string;
+          delaySeconds?: number;
+        }) => Promise<boolean>)
+      | undefined;
+    const rawThought = (p as { message?: unknown }).message;
+    const thought = typeof rawThought === "string" ? rawThought : "";
+    if (selfTurn && thought.trim()) {
+      let armed = false;
+      try {
+        armed = await selfTurn({
+          sessionKey: canonicalKey,
+          thought,
+          ...((p as { pryvaFlowSource?: string }).pryvaFlowSource
+            ? { source: (p as { pryvaFlowSource: string }).pryvaFlowSource }
+            : {}),
+          ...((p as { pryvaFlowId?: string }).pryvaFlowId
+            ? { parentFlowId: (p as { pryvaFlowId: string }).pryvaFlowId }
+            : {}),
+        });
+      } catch {
+        armed = false;
+      }
+      params.respond(true, { accepted: armed, sessionKey: canonicalKey }, undefined);
+      return;
+    }
+    // No pipeline / empty thought → fall through to the normal inbound send.
+  }
+
   let interruptedActiveRun = false;
   if (params.interruptIfActive) {
     const interruptResult = await interruptSessionRunIfActive({

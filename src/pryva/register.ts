@@ -10,6 +10,7 @@
 import type { OpenClawConfig } from "../config/config.js";
 import type { OpenClawPluginApi } from "../plugins/types.js";
 import { resolvePryvaConfig } from "./config.js";
+import { publishSelfTurn } from "./inner-voice.js";
 import { onInboundClaim } from "./pipeline-claim.js";
 import { onBeforeAgentFinalize } from "./pipeline-finalize.js";
 import {
@@ -54,6 +55,11 @@ export function registerPryvaPipelineHooks(api: OpenClawPluginApi, cfg: OpenClaw
       ? { unscheduleSessionTurnsByTag: (params) => workflow.unscheduleSessionTurnsByTag(params) }
       : {}),
   });
+
+  // Publish the write-scoped self-turn trigger on globalThis so the core gateway `sessions.send`
+  // handler can fire a backend-driven scheduled-todo as a self-turn IN-PROCESS (no operator.admin
+  // cron RPC, no inbound/Ear). Read duck-typed by sessions.ts; no-op when the pipeline isn't loaded.
+  publishSelfTurn(pipeline);
 
   // inbound_claim runs BEFORE the agent: for a trivial short message the backend
   // quick-reply may answer it directly (handled), skipping the whole agent turn.
