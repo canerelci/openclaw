@@ -559,6 +559,7 @@ export function createOpenClawCodingTools(options?: {
     globalProviderPolicy,
     agentPolicy,
     agentProviderPolicy,
+    disabledBuiltins,
     profile,
     providerProfile,
     profileAlsoAllow,
@@ -1037,6 +1038,7 @@ export function createOpenClawCodingTools(options?: {
             : undefined,
           sandboxed: Boolean(sandbox),
           config: options?.config,
+          disabledBuiltinToolNames: disabledBuiltins,
           pluginToolAllowlist,
           pluginToolDenylist,
           cronCreatorToolAllowlist: shouldCaptureCronCreatorToolAllowlist

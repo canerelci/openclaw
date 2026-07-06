@@ -693,6 +693,15 @@ Runtime `api.registerTool(...)` registrations must match `contracts.tools`.
 Tool discovery uses this list to load only the plugin runtimes that can own the
 requested tools.
 
+If a plugin tool name collides with a core built-in tool of the same name, the
+plugin tool is dropped (the built-in wins) and a `plugin tool name conflict`
+diagnostic is logged. To let a plugin claim a name a built-in owns, drop the
+built-in first with the `tools.disableBuiltins` config list (global or per-agent
+`tools`), for example `tools.disableBuiltins: ["video_generate"]`. Unlike
+`tools.deny`, which hides a tool after collection and would also hide the plugin
+replacement, `disableBuiltins` only removes the core built-in so the plugin's
+same-named tool registers in its place.
+
 Provider plugins that implement `resolveExternalAuthProfiles` should declare
 `contracts.externalAuthProviders`; undeclared external-auth hooks are ignored.
 

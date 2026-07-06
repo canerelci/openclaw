@@ -370,4 +370,25 @@ describe("openclaw-tools update_plan gating", () => {
     expectUpdatePlanEnabled(openAiGpt5Params(cfg, { agentId: "main" }), false);
     expectUpdatePlanEnabled(openAiGpt5Params(cfg, { agentId: "research" }), true);
   });
+
+  it("drops a core built-in named in disabledBuiltinToolNames so a plugin may claim the name", () => {
+    const baseline = createFastToolNames({});
+    // session_status is an unconditional core built-in; it anchors the assertion.
+    expect(baseline).toContain("session_status");
+
+    const filtered = createFastToolNames({ disabledBuiltinToolNames: ["session_status"] });
+    // Only the disabled built-in is removed; the rest of the surface is untouched,
+    // freeing the name for a plugin tool of the same name to register instead.
+    expect(filtered).not.toContain("session_status");
+    expect(filtered).toEqual(baseline.filter((name) => name !== "session_status"));
+  });
+
+  it("ignores disabledBuiltinToolNames entries that match no core built-in", () => {
+    const baseline = createFastToolNames({});
+    const filtered = createFastToolNames({
+      disabledBuiltinToolNames: ["not_a_real_builtin_tool"],
+    });
+
+    expect(filtered).toEqual(baseline);
+  });
 });

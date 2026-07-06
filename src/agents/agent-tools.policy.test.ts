@@ -504,6 +504,31 @@ describe("resolveEffectiveToolPolicy", () => {
     expect(result.profileAlsoAllow).not.toContain("process");
   });
 
+  it("merges tools.disableBuiltins from global and agent scope (deduped)", () => {
+    const cfg = {
+      tools: {
+        disableBuiltins: ["video_generate", "music_generate"],
+      },
+      agents: {
+        list: [
+          {
+            id: "smm",
+            tools: {
+              disableBuiltins: ["music_generate", "tts"],
+            },
+          },
+        ],
+      },
+    } as OpenClawConfig;
+    const result = resolveEffectiveToolPolicy({ config: cfg, agentId: "smm" });
+    expect(result.disabledBuiltins.toSorted()).toEqual(["music_generate", "tts", "video_generate"]);
+  });
+
+  it("returns an empty disabledBuiltins list when unset", () => {
+    const result = resolveEffectiveToolPolicy({ config: {} as OpenClawConfig });
+    expect(result.disabledBuiltins).toEqual([]);
+  });
+
   it("does not warn an agent profile about inherited global tool sections (#47487)", async () => {
     const warnLogs = createWarnLogCapture("openclaw-agent-tools-policy-test");
     try {

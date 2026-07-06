@@ -760,6 +760,9 @@ const CommonToolPolicyFields = {
   allow: z.array(z.string()).optional(),
   alsoAllow: z.array(z.string()).optional(),
   deny: z.array(z.string()).optional(),
+  // Core built-ins dropped before plugin-tool collection so a plugin may claim
+  // the name (distinct from `deny`, which hides post-collection incl. the plugin).
+  disableBuiltins: z.array(z.string()).optional(),
   byProvider: z.record(z.string(), ToolPolicyWithProfileSchema).optional(),
   toolsBySender: ToolPolicyBySenderSchema,
 };

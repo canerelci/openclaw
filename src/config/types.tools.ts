@@ -402,6 +402,15 @@ export type AgentToolsConfig = {
   /** Additional allowlist entries merged into allow and/or profile allowlist. */
   alsoAllow?: string[];
   deny?: string[];
+  /**
+   * Core built-in tool names to drop before plugin tools are collected, so a
+   * plugin may claim a name a core built-in owns (e.g. a flavor plugin's own
+   * `video_generate`). The built-in is removed first, so the plugin's same-named
+   * tool registers instead of losing the name conflict. Unlike `deny` (which
+   * hides a tool post-collection and would also hide the plugin replacement),
+   * this only removes the core built-in. Matched normalized; unknown names ignored.
+   */
+  disableBuiltins?: string[];
   /** Optional tool policy overrides keyed by provider id or "provider/model". */
   byProvider?: Record<string, ToolPolicyConfig>;
   /** Per-sender tool policy overrides keyed by sender identity. */
@@ -599,6 +608,15 @@ export type ToolsConfig = {
   /** Additional allowlist entries merged into allow and/or profile allowlist. */
   alsoAllow?: string[];
   deny?: string[];
+  /**
+   * Core built-in tool names to drop before plugin tools are collected, so a
+   * plugin may claim a name a core built-in owns (e.g. a flavor plugin's own
+   * `video_generate`). The built-in is removed first, so the plugin's same-named
+   * tool registers instead of losing the name conflict. Unlike `deny` (which
+   * hides a tool post-collection and would also hide the plugin replacement),
+   * this only removes the core built-in. Matched normalized; unknown names ignored.
+   */
+  disableBuiltins?: string[];
   /** Optional tool policy overrides keyed by provider id or "provider/model". */
   byProvider?: Record<string, ToolPolicyConfig>;
   /** Per-sender tool policy overrides keyed by sender identity. */

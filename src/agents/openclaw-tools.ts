@@ -39,6 +39,7 @@ import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 import type { SpawnedToolContext } from "./spawned-context.js";
 import type { ToolFsPolicy } from "./tool-fs-policy.js";
 import { resolveToolLoopDetectionConfig } from "./tool-loop-detection-config.js";
+import { normalizeToolName } from "./tool-policy.js";
 import { createAgentsListTool } from "./tools/agents-list-tool.js";
 import type { AnyAgentTool } from "./tools/common.js";
 import { createCronTool, type CronCreatorToolAllowlistEntry } from "./tools/cron-tool.js";
@@ -107,6 +108,11 @@ export function createOpenClawTools(
     fsPolicy?: ToolFsPolicy;
     sandboxed?: boolean;
     config?: OpenClawConfig;
+    /**
+     * Core built-in tool names to drop before plugin tools are collected, so a
+     * plugin may claim a name a core built-in owns (config `tools.disableBuiltins`).
+     */
+    disabledBuiltinToolNames?: string[];
     pluginToolAllowlist?: string[];
     pluginToolDenylist?: string[];
     /** Effective caller tool surface to persist on isolated cron agentTurn jobs. */
@@ -559,14 +565,25 @@ export function createOpenClawTools(
     ...collectPresentOpenClawTools([webSearchTool, webFetchTool, imageTool, pdfTool]),
   ];
   options?.recordToolPrepStage?.("openclaw-tools:core-tool-list");
-  let allTools = tools;
+  // Drop operator-disabled built-ins (config `tools.disableBuiltins`) BEFORE the
+  // taken-name set is seeded, so a plugin declaring the same name registers here
+  // instead of losing the name conflict in collection. Normalized to match the
+  // plugin conflict check. `deny` can't do this — it hides post-collection and
+  // would also drop the plugin replacement.
+  const disabledBuiltins = new Set(
+    (options?.disabledBuiltinToolNames ?? []).map(normalizeToolName),
+  );
+  const coreTools = disabledBuiltins.size
+    ? tools.filter((tool) => !disabledBuiltins.has(normalizeToolName(tool.name)))
+    : tools;
+  let allTools = coreTools;
   if (!options?.disablePluginTools) {
     const existingToolNames = new Set<string>();
-    for (const tool of tools) {
+    for (const tool of coreTools) {
       existingToolNames.add(tool.name);
     }
     allTools = [
-      ...tools,
+      ...coreTools,
       ...resolveOpenClawPluginToolsForOptions({
         options,
         resolvedConfig,
