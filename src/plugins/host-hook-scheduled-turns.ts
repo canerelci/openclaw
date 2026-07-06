@@ -258,12 +258,18 @@ export async function schedulePluginSessionTurn(params: {
     return undefined;
   }
   if (!params.cron) {
-    log.warn(
-      `plugin session turn scheduling failed (${formatScheduleLogContext({
+    // No host scheduler in this process is an expected condition, not a failure:
+    // the gateway owns the persistent cron, but bundled plugins also load in
+    // one-shot `openclaw agent --local` subprocesses (CLI/backend-driven turns)
+    // that never wire hostServices.cron — and could not honor a delayed wake
+    // anyway, since the process exits after the turn. Debug, not warn, so these
+    // contexts don't spam; genuine add failures below still warn.
+    log.debug(
+      `plugin session turn scheduling skipped (${formatScheduleLogContext({
         pluginId: params.pluginId,
         sessionKey,
         ...(scheduleName ? { name: scheduleName } : {}),
-      })}): cron service unavailable`,
+      })}): no host scheduler in this process`,
     );
     return undefined;
   }
@@ -368,8 +374,10 @@ export async function unschedulePluginSessionTurnsByTag(params: {
     return { removed: 0, failed: 0 };
   }
   if (!params.cron) {
-    log.warn("plugin session turn untag-list failed: cron service unavailable");
-    return { removed: 0, failed: 1 };
+    // Same expected no-scheduler context as schedule (CLI/local subprocess):
+    // there are no persisted plugin turns to remove here. Debug, not warn.
+    log.debug("plugin session turn untag skipped: no host scheduler in this process");
+    return { removed: 0, failed: 0 };
   }
   const cron = params.cron;
   const namePrefix = buildPluginSchedulerTagPrefix({
