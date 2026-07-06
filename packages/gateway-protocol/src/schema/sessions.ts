@@ -268,6 +268,11 @@ export const SessionsSendParamsSchema = Type.Object(
     // parent flow. Bound at before_agent_start via the FlowRegistry.
     pryvaFlowId: Type.Optional(NonEmptyString),
     pryvaFlowSource: Type.Optional(NonEmptyString),
+    // Pryva self-turn: when true, `message` is delivered as the assistant's OWN framed thought (a
+    // scheduled-todo self-turn) instead of an inbound — the gateway routes it to the in-process pryva
+    // self-turn scheduler rather than chat.send, so no message_received/Ear fires. Write-scoped (avoids
+    // the operator.admin cron RPC). Harmless no-op flag on a gateway without the pryva pipeline.
+    innerVoice: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );
