@@ -152,7 +152,7 @@ async function runEar(pipeline: PryvaPipeline, entry: PipelineInboundContext): P
  */
 async function deliverFastAck(
   pipeline: PryvaPipeline,
-  opts: { to: string; content: string; channel: string; accountId?: string },
+  opts: { to: string; content: string; channel: string; accountId?: string; sessionKey?: string },
 ): Promise<void> {
   if (!pipeline.rawCfg) {
     return;
@@ -164,6 +164,11 @@ async function deliverFastAck(
       content: opts.content,
       channel: opts.channel,
       ...(opts.accountId ? { accountId: opts.accountId } : {}),
+      // Carry the inbound session so this delivery's `message_sent` hook resolves
+      // structurally to THIS flow (bound at message_received) instead of firing
+      // hookless / unbound — otherwise the fast-ack's `ocw_outbound_delivered`
+      // telemetry lands on `fl-unbound` (the flawless-flow I1 alarm).
+      ...(opts.sessionKey ? { requesterSessionKey: opts.sessionKey } : {}),
       cfg: pipeline.rawCfg,
       bestEffort: true,
     });
@@ -327,7 +332,7 @@ export async function onMessageReceived(
         metadata: { pryva_ack: true, channel, sender: from },
       },
     );
-    void deliverFastAck(pipeline, { to: from, content: ack, channel });
+    void deliverFastAck(pipeline, { to: from, content: ack, channel, sessionKey });
   }
 
   // D6 (safe steering): let the backend abort any in-flight NCW work this message invalidates
