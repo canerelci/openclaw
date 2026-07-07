@@ -250,25 +250,34 @@ export class FlowRegistry {
   }
 
   /**
-   * Structural resolution for a telemetry/outbound step. Order matters: runId is
-   * per-turn-exact; sessionId narrows; sessionKey is the broadest fallback (the
-   * pre-run inbound binding). Returns the binding, or null when nothing binds —
-   * the caller then logs `fl-unbound` + WARN (never mints a fake id).
+   * Structural resolution for a telemetry/outbound step. `runId` is per-turn-exact
+   * and always wins. Between the two SESSION-scoped fallbacks, the FRESHEST binding
+   * (larger `startedAt`) wins — NOT a fixed sessionId-before-sessionKey order.
+   *
+   * WHY FRESHEST, NOT FIXED ORDER: the two session maps are refreshed at DIFFERENT
+   * moments. `onMessageReceived` rebinds `sessionKey` on EVERY inbound, but
+   * `sessionId` is only (re)bound later at `before_agent_start`. So between a new
+   * message arriving and its agent run starting, the PRIOR turn's `sessionId`
+   * binding is still present and STALE. A fixed "sessionId first" order made that
+   * stale binding win over the current inbound's fresh `sessionKey` binding, so the
+   * whole agent turn (and its telemetry) got attributed to the previous turn's flow
+   * while the real inbound flow dead-ended — the fragmentation bug (flawless-flow
+   * RC; observed on prod Mina 2026-07-08: fl-a08… stole a turn from fl-7eb…).
+   * Preferring the freshest binding makes the current inbound win, and is a no-op
+   * once before_agent_start rebinds both maps to the same flow for the live turn.
+   * Returns null when nothing binds — the caller logs `fl-unbound` + WARN.
    */
   resolve(runId?: string, sessionId?: string, sessionKey?: string): FlowBinding | null {
     if (runId) {
       const b = this.runs.get(runId);
       if (b) return b;
     }
-    if (sessionId) {
-      const b = this.sessionIdBindings.get(sessionId);
-      if (b) return b;
+    const bySid = sessionId ? this.sessionIdBindings.get(sessionId) : undefined;
+    const bySk = sessionKey ? this.sessionBindings.get(sessionKey) : undefined;
+    if (bySid && bySk) {
+      return bySid.startedAt >= bySk.startedAt ? bySid : bySk;
     }
-    if (sessionKey) {
-      const b = this.sessionBindings.get(sessionKey);
-      if (b) return b;
-    }
-    return null;
+    return bySid ?? bySk ?? null;
   }
 
   /** GC evictions — TTL only, NEVER consulted by resolution. */
