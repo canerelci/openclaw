@@ -49,6 +49,14 @@ export type FlowSource =
   // inner-voice thought. A genuine new trigger — distinct from `inner_voice` only
   // so the flow log can tell "self-originated thought" from "a scheduled work item".
   | "scheduled_todo"
+  // `platform` = a Pryva-platform → assistant announcement (an admin/system broadcast the backend
+  // surfaces to the tenant). The backend MINTS the flow id and logs its own flow_start(source=platform),
+  // then routes the announcement through the gateway sessions.send innerVoice self-turn seam carrying
+  // pryvaFlowId. Like `ncw_completion`/`subagent` it is a flow_resume source ONLY: the assistant's turn
+  // RE-ENTERS the backend's flow (one shared id) rather than minting a child, so backend hops and the
+  // fork's turn/telemetry stay in ONE flow — see inner-voice.ts scheduleSelfWake (resume branch) →
+  // onBeforeAgentStart step 2 (flow_resume). Never a fresh trigger the fork mints.
+  | "platform"
   // `ncw_completion` is only ever a flow_resume source (an NCW agent finishing
   // re-enters the SAME flow — it is never a new trigger).
   | "ncw_completion"

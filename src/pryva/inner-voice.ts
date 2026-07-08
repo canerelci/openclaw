@@ -113,6 +113,9 @@ export async function scheduleSelfWake(
     reason: string;
     tag: string;
     parentFlowId?: string;
+    /** When set, the wake RE-ENTERS this existing (backend-minted) flow via flow_resume instead of
+     *  minting a new child — for platform announcements whose flow the backend already started. */
+    resumeFlowId?: string;
     delaySeconds?: number;
     cancelOnInbound?: boolean;
     channel?: string;
@@ -154,16 +157,34 @@ export async function scheduleSelfWake(
     return false;
   }
 
-  // Armed: tag the wake's future run as a NEW `source` flow (parented), ahead of the session bridge,
-  // with `reason` as the logged trigger (e.g. `first_contact_followup` / `todo:<id>`).
-  pipeline.registry.setSourceHintBySession(sessionKey, source, parentFlowId, reason);
+  // Armed. Attribute the wake's future run — two shapes:
+  //  - RESUME an existing external flow (`resumeFlowId`, source `platform`): the backend already minted
+  //    the flow and logged its flow_start, so the wake must RE-ENTER that SAME id (no fragmentation).
+  //    Attach it by session → onBeforeAgentStart step 2 binds it + logs flow_resume. parentFlowId ==
+  //    flowId records the linkage, matching the NCW/subagent attach convention.
+  //  - MINT a NEW child flow tagged `source` (inner_voice / scheduled_todo): a genuinely new
+  //    self-originated trigger; the session source hint → onBeforeAgentStart step 3b mints it, parented,
+  //    with `reason` as the logged trigger (e.g. `first_contact_followup` / `todo:<id>`).
+  if (opts.resumeFlowId) {
+    pipeline.registry.attachExternalFlowBySession(
+      sessionKey,
+      opts.resumeFlowId,
+      source,
+      opts.resumeFlowId,
+    );
+  } else {
+    pipeline.registry.setSourceHintBySession(sessionKey, source, parentFlowId, reason);
+  }
   if (opts.cancelOnInbound) {
     pendingCancelOnInbound.add(sessionKey);
   }
 
+  // Land the `ocw_<source>_scheduled` marker on the flow the wake will actually run under: the resumed
+  // id when resuming, else the parent the child hangs off.
+  const attributionFlowId = opts.resumeFlowId ?? parentFlowId;
   logFlowStep(
     pipeline,
-    { sessionKey, ...(parentFlowId ? { flowId: parentFlowId } : {}) },
+    { sessionKey, ...(attributionFlowId ? { flowId: attributionFlowId } : {}) },
     {
       step_name: `ocw_${source}_scheduled`,
       step_type: "trigger",
@@ -258,7 +279,8 @@ export type PryvaSelfTurnRequest = {
   sessionKey: string;
   /** Raw impulse; the surface frames it. */
   thought: string;
-  /** Flow source for the minted turn (default `scheduled_todo`). */
+  /** Flow source for the turn (default `scheduled_todo`). A flow_resume source (e.g. `platform`) makes
+   *  the turn RE-ENTER `parentFlowId` instead of minting a new flow — see FLOW_RESUME_SELF_TURN_SOURCES. */
   source?: string;
   reason?: string;
   parentFlowId?: string;
@@ -270,6 +292,15 @@ export type PryvaSelfTurnFn = (req: PryvaSelfTurnRequest) => Promise<boolean>;
 
 const SELF_TURN_GLOBAL_KEY = "__pryvaSelfTurn";
 
+/**
+ * Self-turn sources that RE-ENTER an externally-minted flow (flow_resume) instead of minting a new
+ * self-originated flow. `platform` = a Pryva-platform → assistant announcement whose flow the backend
+ * already started (and logged flow_start for); the wake must share that id, not fork a child. For these
+ * the incoming pryvaFlowId (mapped to `parentFlowId` by the gateway) IS the flow to resume — see
+ * scheduleSelfWake's resume branch.
+ */
+const FLOW_RESUME_SELF_TURN_SOURCES: ReadonlySet<FlowSource> = new Set<FlowSource>(["platform"]);
+
 /** Publish the self-turn trigger on globalThis, capturing the pipeline. Call after the pipeline (and
  *  its scheduleSessionTurn handle) exists. Non-fatal in a locked-down runtime. */
 export function publishSelfTurn(pipeline: PryvaPipeline): void {
@@ -278,6 +309,11 @@ export function publishSelfTurn(pipeline: PryvaPipeline): void {
       return false;
     }
     const source = (req.source as FlowSource) || "scheduled_todo";
+    // A flow_resume source (platform) RE-ENTERS the backend's flow: the incoming pryvaFlowId (mapped to
+    // parentFlowId by the gateway) IS the flow to resume, not a parent to hang a child off. Route it to
+    // resumeFlowId so the wake logs flow_resume on that ONE shared id instead of minting a child.
+    const resumeFlowId =
+      FLOW_RESUME_SELF_TURN_SOURCES.has(source) && req.parentFlowId ? req.parentFlowId : undefined;
     return scheduleSelfWake(pipeline, {
       sessionKey: req.sessionKey,
       thought: req.thought,
@@ -286,10 +322,14 @@ export function publishSelfTurn(pipeline: PryvaPipeline): void {
         req.reason ||
         (typeof req.source === "string" && req.source ? req.source : "scheduled_todo"),
       tag: SCHEDULED_TODO_TAG,
-      // A scheduled todo is due work, not a greeting follow-up: it should NOT cancel on inbound.
+      // A scheduled todo / platform announce is due work, not a greeting follow-up: never cancel on inbound.
       cancelOnInbound: false,
       delaySeconds: req.delaySeconds ?? 0,
-      ...(req.parentFlowId ? { parentFlowId: req.parentFlowId } : {}),
+      ...(resumeFlowId
+        ? { resumeFlowId }
+        : req.parentFlowId
+          ? { parentFlowId: req.parentFlowId }
+          : {}),
       ...(req.channel ? { channel: req.channel } : {}),
     });
   };
