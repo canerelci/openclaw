@@ -71,6 +71,61 @@ describe("onMessageSending flow attribution", () => {
   });
 });
 
+describe("onMessageSending error-reply neutralization", () => {
+  const BILLING_ERROR =
+    "⚠️ Anthropic returned a billing error — your API key has run out of credits or has an " +
+    "insufficient balance. Check your Anthropic billing dashboard and top up or switch to a " +
+    "different API key.";
+
+  it("replaces operator-facing error copy with brand-neutral text and skips Cortex/Mouth", async () => {
+    const pipeline = makePipeline({ flowId: "fl-real" });
+
+    const result = await onMessageSending(
+      pipeline,
+      { to: "owner", content: BILLING_ERROR, isError: true },
+      { channelId: "whatsapp", sessionKey: "agent:main:main", runId: "run-billing" } as never,
+    );
+
+    expect(result?.content).toBeDefined();
+    expect(result?.content).not.toContain("Anthropic");
+    expect(result?.content).not.toContain("credits");
+    expect(result?.content).not.toContain("billing dashboard");
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(false);
+    expect(calls().some((c) => c.path === "/pipeline/mouth")).toBe(false);
+  });
+
+  it("localizes the neutral copy to Turkish when the original error text is Turkish", async () => {
+    const pipeline = makePipeline({ flowId: "fl-real" });
+    const trError =
+      "Üzgünüz, API sağlayıcımız bir faturalama hatası döndü. API anahtarınızın kredileri " +
+      "bitti veya yetersiz bakiyesi var.";
+
+    const result = await onMessageSending(
+      pipeline,
+      { to: "owner", content: trError, isError: true },
+      { channelId: "whatsapp", runId: "run-billing-tr" } as never,
+    );
+
+    expect(result?.content).toMatch(/[ığşçöüİĞŞÇÖÜ]/);
+    expect(result?.content).not.toContain("faturalama");
+    expect(result?.content).not.toContain("API anahtar");
+  });
+
+  it("logs a flow-step for the neutralization, attributed to the producing flow", async () => {
+    const pipeline = makePipeline({ flowId: "fl-real" });
+
+    await onMessageSending(pipeline, { to: "owner", content: BILLING_ERROR, isError: true }, {
+      channelId: "whatsapp",
+      runId: "run-billing",
+    } as never);
+
+    const step = calls().find(
+      (c) => c.path === "/flows/log-step" && c.body.step_name === "ocw_error_reply_neutralized",
+    );
+    expect(step?.opts.flowId).toBe("fl-real");
+  });
+});
+
 describe("onMessageSending empty-promise backstop", () => {
   it("demotes a promise that MOUTH reintroduced into an honest draft (fl-6cb0e7d6fda4)", async () => {
     // Real prod shape: the agent's final reply was honest, Cortex blocked without a rewrite,

@@ -1102,6 +1102,7 @@ async function applyMessageSendingHook(params: {
         content: params.payloadSummary.hookContent ?? params.payloadSummary.text,
         replyToId: params.replyToId ?? undefined,
         threadId: params.threadId ?? undefined,
+        isError: params.payload.isError === true ? true : undefined,
         metadata: {
           channel: params.channel,
           accountId: params.accountId,

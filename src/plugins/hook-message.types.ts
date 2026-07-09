@@ -122,6 +122,15 @@ export type PluginHookMessageSendingEvent = {
   replyToId?: string | number;
   threadId?: string | number;
   metadata?: Record<string, unknown>;
+  /**
+   * True when `content` is a user-facing error/failure message (e.g. a
+   * sanitized provider billing/rate-limit notice), not normal assistant
+   * output. Error text has already been through
+   * `formatUserFacingAssistantErrorText` and must not be rewritten,
+   * translated, or otherwise treated as ordinary reply content by
+   * downstream quality/formatting hooks.
+   */
+  isError?: boolean;
 };
 
 export type PluginHookMessageSendingResult = {

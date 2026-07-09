@@ -21,6 +21,7 @@ import type {
 import { isFastAck } from "./ack.js";
 import { pryvaFetch } from "./backend.js";
 import type { PipelineInboundContext } from "./context.js";
+import { neutralizeErrorReply } from "./error-reply.js";
 import { UNBOUND_FLOW_ID } from "./flow-registry.js";
 import { logFlowStep, type PryvaPipeline } from "./pipeline.js";
 import { baseStripOutbound, guardRoleBreak } from "./sanitize.js";
@@ -60,6 +61,14 @@ export async function onMessageSending(
   // length checks below already skip most acks; this makes it explicit + exact.
   const isAck = isFastAck(content);
 
+  // A sanitized provider/system error reply (billing, rate-limit, etc.) must
+  // reach the customer byte-for-byte. Cortex and Mouth both operate as if
+  // content were normal assistant output — Cortex can rewrite it, Mouth can
+  // translate/reformat it (or even reintroduce a stalling promise, see the
+  // empty-promise backstop below) — so both are skipped for error text same
+  // as a fast-ack, treating it as pre-approved rather than a draft to polish.
+  const isErrorReply = event.isError === true;
+
   const channel = ctx?.channelId;
   const to = event?.to;
   // Prefer ctx (hook context from deliver), then event fields if harness put them there.
@@ -84,6 +93,29 @@ export async function onMessageSending(
       `outbound unbound: no flow for run=${runId ?? "?"} session=${sessionKey ?? "?"} ` +
         `to=${to ?? "?"} [${flowId}]`,
     );
+  }
+
+  if (isErrorReply) {
+    const responseLanguage =
+      typeof earPlan?.response_language === "string" ? earPlan.response_language : undefined;
+    content = neutralizeErrorReply(content, responseLanguage);
+    pipeline.log.warn(`outbound error reply neutralized (to=${to ?? "?"}) [${flowId}]`);
+    logFlowStep(
+      pipeline,
+      { flowId },
+      {
+        step_name: "ocw_error_reply_neutralized",
+        step_type: "internal",
+        status: "ok",
+        input_text: sanitized.slice(0, 500),
+        output_text: content,
+        metadata: { channel: channel ?? null, to: to ?? null },
+      },
+    );
+    if (content !== event.content) {
+      return { content };
+    }
+    return;
   }
 
   // Cortex quality gate. Never cancel a deliberate send — media captions and

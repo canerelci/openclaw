@@ -57,6 +57,75 @@ export async function onLlmInput(
 const LLM_INPUT_CAP = 16000;
 const LLM_OUTPUT_CAP = 16000;
 
+/** Prefer visible assistant prose; fall back to tool-call summary from lastAssistant. */
+function extractLlmOutputText(event: PluginHookLlmOutputEvent): string | null {
+  const fromTexts = Array.isArray(event?.assistantTexts)
+    ? event.assistantTexts.join("\n").trim()
+    : "";
+  if (fromTexts) {
+    return fromTexts.slice(0, LLM_OUTPUT_CAP);
+  }
+  const last = event?.lastAssistant as
+    | {
+        content?: unknown;
+        text?: unknown;
+        toolCalls?: unknown[];
+        tool_calls?: unknown[];
+      }
+    | undefined;
+  if (!last) {
+    return null;
+  }
+  const content = last.content ?? last.text;
+  if (typeof content === "string" && content.trim()) {
+    return content.trim().slice(0, LLM_OUTPUT_CAP);
+  }
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const block of content) {
+      if (typeof block === "string") {
+        parts.push(block);
+        continue;
+      }
+      if (!block || typeof block !== "object") {
+        continue;
+      }
+      const b = block as Record<string, unknown>;
+      if (typeof b.text === "string" && b.text.trim()) {
+        parts.push(b.text);
+      } else if (
+        b.type === "toolCall" ||
+        b.type === "tool_use" ||
+        b.type === "functionCall" ||
+        typeof b.name === "string"
+      ) {
+        const name = String(b.name ?? b.toolName ?? "tool");
+        const args = b.arguments ?? b.args ?? b.input ?? b.params ?? {};
+        parts.push(`[tool_call ${name}] ${typeof args === "string" ? args : JSON.stringify(args)}`);
+      }
+    }
+    const joined = parts.join("\n").trim();
+    if (joined) {
+      return joined.slice(0, LLM_OUTPUT_CAP);
+    }
+  }
+  const toolCalls = last.toolCalls ?? last.tool_calls;
+  if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+    const parts = toolCalls.map((tc) => {
+      if (!tc || typeof tc !== "object") {
+        return "[tool_call]";
+      }
+      const t = tc as Record<string, unknown>;
+      const fn = (t.function as Record<string, unknown> | undefined) ?? t;
+      const name = String(fn.name ?? t.name ?? t.toolName ?? "tool");
+      const args = fn.arguments ?? t.arguments ?? t.args ?? t.input ?? {};
+      return `[tool_call ${name}] ${typeof args === "string" ? args : JSON.stringify(args)}`;
+    });
+    return parts.join("\n").slice(0, LLM_OUTPUT_CAP);
+  }
+  return null;
+}
+
 export async function onLlmOutput(
   pipeline: PryvaPipeline,
   event: PluginHookLlmOutputEvent,
@@ -81,11 +150,10 @@ export async function onLlmOutput(
     captured?.systemPrompt && captured.systemPrompt.trim()
       ? captured.systemPrompt.slice(0, LLM_INPUT_CAP)
       : null;
-  // OUTPUT: the full assistant text, not a 500-char teaser.
-  const outputFull = Array.isArray(event?.assistantTexts)
-    ? event.assistantTexts.join("\n") || null
-    : null;
-  const outputText = outputFull ? outputFull.slice(0, LLM_OUTPUT_CAP) : null;
+  // OUTPUT: full assistant text; if the model only emitted tool calls (no prose),
+  // still surface them so Flows is not an empty "Output" (live: tool-only turns
+  // left ocw_llm_turn.response blank while ocw_model_call had the tool_call).
+  const outputText = extractLlmOutputText(event);
   // The OCW llm_output hook does NOT carry reasoning CONTENT (only the effort
   // level); the actual chain-of-thought for the main agent is in the session
   // JSONL turns. Record the effort level so the UI can show the mode at least.
