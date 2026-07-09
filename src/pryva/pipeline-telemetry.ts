@@ -21,6 +21,7 @@ import type {
 } from "../plugins/types.js";
 import { pryvaFetch } from "./backend.js";
 import { logFlowStep, type PryvaPipeline } from "./pipeline.js";
+import { noteToolCall } from "./stalling.js";
 
 // runId → the INPUT captured from the llm_input hook (fires just before llm_output for the same
 // run). The llm_output event does NOT carry the prompt, so we stash the input here and consume it
@@ -154,6 +155,9 @@ export async function onAfterToolCall(
 ): Promise<void> {
   const toolName = event?.toolName || "unknown";
   const error = event?.error ?? null;
+  // Feed the zero-tool stalling gate: a run that called a work tool cannot be accused of
+  // promising work it never started. Recorded even when the call errored — the agent DID act.
+  noteToolCall(event?.runId, toolName);
   logFlowStep(
     pipeline,
     { runId: event?.runId },

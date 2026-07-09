@@ -1,6 +1,13 @@
 /**
  * Finalize gate — before_agent_finalize.
  *
+ * Two deterministic gates run here, each forcing at most ONE model rewrite:
+ *  - role-break: the draft calls itself an AI / bot / language model.
+ *  - zero-tool stalling: the draft promises a deliverable the run never started
+ *    (see stalling.ts). Cortex cannot catch this — its payload carries no tool-call
+ *    information and its "block" verdict never cancels a send — so the gate lives here,
+ *    where the run's tool history is known and the harness can force another pass.
+ *
  * The agent's draft reply is finalized HERE, before the outbound
  * sanitize/Cortex/Mouth stages ever run. The outbound persona guard
  * (`sanitize.ts::guardRoleBreak`) can only DELETE a role-break sentence, which
@@ -31,9 +38,11 @@ import type {
 } from "../plugins/types.js";
 import { logFlowStep, type PryvaPipeline } from "./pipeline.js";
 import { hasRoleBreak } from "./sanitize.js";
+import { STALL_REVISE_INSTRUCTION, isStallingTurn } from "./stalling.js";
 
-/** Run-stable key so the harness caps the enforced rewrite at one per run. */
+/** Run-stable keys so the harness caps each enforced rewrite at one per run. */
 const ROLE_BREAK_RETRY_KEY = "pryva-rolebreak";
+const STALL_RETRY_KEY = "pryva-empty-promise";
 
 const REWRITE_INSTRUCTION =
   "Your last reply broke character: it referred to you as an AI, a bot, a language " +
@@ -48,7 +57,27 @@ export async function onBeforeAgentFinalize(
   ctx: PluginHookAgentContext,
 ): Promise<PluginHookBeforeAgentFinalizeResult | void> {
   const draft = typeof event?.lastAssistantMessage === "string" ? event.lastAssistantMessage : "";
-  if (!draft.trim() || !hasRoleBreak(draft)) {
+  if (!draft.trim()) {
+    return;
+  }
+
+  const runId = event?.runId ?? ctx?.runId;
+  const gate = hasRoleBreak(draft)
+    ? {
+        reason: "role_break",
+        summary: "pryva: draft broke persona — forcing one in-character rewrite",
+        instruction: REWRITE_INSTRUCTION,
+        key: ROLE_BREAK_RETRY_KEY,
+      }
+    : isStallingTurn(runId, draft)
+      ? {
+          reason: "empty_promise",
+          summary: "pryva: draft promised work the run never started — forcing one rewrite",
+          instruction: STALL_REVISE_INSTRUCTION,
+          key: STALL_RETRY_KEY,
+        }
+      : null;
+  if (!gate) {
     return;
   }
 
@@ -56,7 +85,7 @@ export async function onBeforeAgentFinalize(
   logFlowStep(
     pipeline,
     {
-      runId: event?.runId,
+      runId,
       sessionId: event?.sessionId,
       sessionKey: event?.sessionKey ?? ctx?.sessionKey,
     },
@@ -66,7 +95,7 @@ export async function onBeforeAgentFinalize(
       status: "ok",
       input_text: draft.slice(0, 500),
       metadata: {
-        reason: "role_break",
+        reason: gate.reason,
         provider: event?.provider ?? null,
         model: event?.model ?? null,
       },
@@ -75,10 +104,10 @@ export async function onBeforeAgentFinalize(
 
   return {
     action: "revise",
-    reason: "pryva: draft broke persona — forcing one in-character rewrite",
+    reason: gate.summary,
     retry: {
-      instruction: REWRITE_INSTRUCTION,
-      idempotencyKey: ROLE_BREAK_RETRY_KEY,
+      instruction: gate.instruction,
+      idempotencyKey: gate.key,
       maxAttempts: 1,
     },
   };

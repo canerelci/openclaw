@@ -1,11 +1,16 @@
 /**
- * Outbound pipeline hook: message_sending (sanitize → Cortex quality gate →
- * Mouth polish). Flavor-agnostic; the backend Cortex/Mouth stages resolve any
- * flavor/recipient specifics. Each stage is attributed STRUCTURALLY to the
- * message's flow — resolved from the outbound session's sessionKey (the same
- * value message_received bound), never by heuristic. message_sending carries no
- * runId on this fork, so sessionKey is the key; an unbound outbound surfaces as
- * `fl-unbound` + WARN rather than a re-minted fake id.
+ * Outbound pipeline hook: message_sending (sanitize → Cortex quality gate → Mouth
+ * polish → empty-promise backstop). Flavor-agnostic; the backend Cortex/Mouth
+ * stages resolve any flavor/recipient specifics. Each stage is attributed
+ * STRUCTURALLY to the message's flow — resolved from the run that produced the
+ * payload (`runId`, per-turn exact) and falling back to the outbound session's
+ * sessionKey (the same value message_received bound), never by heuristic.
+ *
+ * `runId` is present for every agent-turn reply (routeReply threads it through
+ * deliver.ts). Proactive/notification sends own no run and bind by sessionKey alone;
+ * when neither binds, the step surfaces as `fl-unbound` + WARN rather than a
+ * re-minted fake id. Preferring runId also stops a reply from being attributed to a
+ * NEWER inbound's flow when the owner sends a second message mid-turn.
  */
 
 import type {
@@ -17,13 +22,14 @@ import { isFastAck } from "./ack.js";
 import { pryvaFetch } from "./backend.js";
 import type { PipelineInboundContext } from "./context.js";
 import { UNBOUND_FLOW_ID } from "./flow-registry.js";
-import type { PryvaPipeline } from "./pipeline.js";
+import { logFlowStep, type PryvaPipeline } from "./pipeline.js";
 import { baseStripOutbound, guardRoleBreak } from "./sanitize.js";
+import { demoteEmptyPromise, isStallingTurn } from "./stalling.js";
 
 /**
  * Find the inbound context for an outbound recipient — USED ONLY to fetch the
  * Ear plan + original message text for Cortex/Mouth context, NEVER for flow
- * attribution (flow identity is resolved structurally from sessionKey below).
+ * attribution (flow identity is resolved structurally from runId/sessionKey below).
  */
 function matchInboundContext(
   pipeline: PryvaPipeline,
@@ -57,18 +63,20 @@ export async function onMessageSending(
   const channel = ctx?.channelId;
   const to = event?.to;
   const sessionKey = ctx?.sessionKey;
+  const runId = ctx?.runId;
   const matched = matchInboundContext(pipeline, to, channel);
   const original = matched?.originalMessage || "";
   const earPlan = matched?.earPlan;
 
-  // Structural flow attribution. message_sending has no runId on this fork, so
-  // resolve via sessionKey (the message's flow, bound at message_received). If
-  // nothing binds, use the reserved fl-unbound id + WARN — never re-mint.
-  const binding = pipeline.registry.resolve(undefined, undefined, sessionKey);
+  // Structural flow attribution: the producing run's id is per-turn exact and always
+  // wins; sessionKey is the fallback for sends that own no run. If nothing binds, use
+  // the reserved fl-unbound id + WARN — never re-mint.
+  const binding = pipeline.registry.resolve(runId, undefined, sessionKey);
   const flowId = binding?.flowId ?? UNBOUND_FLOW_ID;
   if (!binding) {
     pipeline.log.warn(
-      `outbound unbound: no flow for session=${sessionKey ?? "?"} to=${to ?? "?"} [${flowId}]`,
+      `outbound unbound: no flow for run=${runId ?? "?"} session=${sessionKey ?? "?"} ` +
+        `to=${to ?? "?"} [${flowId}]`,
     );
   }
 
@@ -123,6 +131,38 @@ export async function onMessageSending(
     if (result?.polished) {
       content = guardRoleBreak(result.polished);
     }
+  }
+
+  // Zero-tool stalling backstop — LAST, after Cortex and Mouth.
+  //
+  // Ordering is load-bearing. The finalize gate (pipeline-finalize.ts) already forced one model
+  // rewrite, but the harness caps that retry budget and then delivers the draft regardless
+  // (lifecycle-hook-helpers.ts: `nextCount > maxAttempts` → `continue`), so a promise can still
+  // arrive here. Cortex cannot stop it either: it is blind to tool calls and its "block" verdict
+  // never cancels a send. And Mouth — nominally a formatter that never adds content — has been
+  // observed REINTRODUCING a promise into an honest draft (flow fl-6cb0e7d6fda4: honest
+  // "logo dosyasını atabilir misin?" in, "Hemen yenisini hazırlıyorum…" out, changed=true).
+  // Running this before those stages would let either of them put the lie back. Last word wins.
+  if (!isAck && isStallingTurn(runId, content)) {
+    const responseLanguage =
+      typeof earPlan?.response_language === "string" ? earPlan.response_language : undefined;
+    const demoted = demoteEmptyPromise(content, responseLanguage);
+    pipeline.log.warn(
+      `outbound empty promise demoted (run=${runId ?? "?"} to=${to ?? "?"}) [${flowId}]`,
+    );
+    logFlowStep(
+      pipeline,
+      { flowId },
+      {
+        step_name: "ocw_empty_promise_blocked",
+        step_type: "internal",
+        status: "ok",
+        input_text: content.slice(0, 500),
+        output_text: demoted.slice(0, 500),
+        metadata: { reason: "zero_tool_stalling", channel: channel ?? null, to: to ?? null },
+      },
+    );
+    content = demoted;
   }
 
   if (content !== event.content) {
