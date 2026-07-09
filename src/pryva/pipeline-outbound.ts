@@ -62,18 +62,24 @@ export async function onMessageSending(
 
   const channel = ctx?.channelId;
   const to = event?.to;
-  const sessionKey = ctx?.sessionKey;
-  const runId = ctx?.runId;
+  // Prefer ctx (hook context from deliver), then event fields if harness put them there.
+  const sessionKey = ctx?.sessionKey || (event as { sessionKey?: string })?.sessionKey || undefined;
+  const runId = ctx?.runId || (event as { runId?: string })?.runId || undefined;
   const matched = matchInboundContext(pipeline, to, channel);
   const original = matched?.originalMessage || "";
   const earPlan = matched?.earPlan;
 
   // Structural flow attribution: the producing run's id is per-turn exact and always
-  // wins; sessionKey is the fallback for sends that own no run. If nothing binds, use
-  // the reserved fl-unbound id + WARN — never re-mint.
+  // wins; sessionKey is the fallback for sends that own no run. I1: when resolve fails
+  // but the inbound matched by recipient already carries a flowId (same message tree),
+  // bind that — structural, not findLatest roulette. If nothing binds, fl-unbound + WARN.
   const binding = pipeline.registry.resolve(runId, undefined, sessionKey);
-  const flowId = binding?.flowId ?? UNBOUND_FLOW_ID;
-  if (!binding) {
+  const matchedFlowId =
+    matched && typeof (matched as { flowId?: string }).flowId === "string"
+      ? (matched as { flowId?: string }).flowId
+      : undefined;
+  const flowId = binding?.flowId ?? matchedFlowId ?? UNBOUND_FLOW_ID;
+  if (!binding && !matchedFlowId) {
     pipeline.log.warn(
       `outbound unbound: no flow for run=${runId ?? "?"} session=${sessionKey ?? "?"} ` +
         `to=${to ?? "?"} [${flowId}]`,

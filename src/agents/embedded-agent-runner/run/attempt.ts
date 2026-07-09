@@ -3159,7 +3159,14 @@ export async function runEmbeddedAttempt(
             ? { contextWindowReferenceTokens: params.contextWindowInfo.referenceTokens }
             : {}),
           trace: runTrace,
-          contentCapture: resolveDiagnosticModelContentCapturePolicy(params.config),
+          // Pryva FT4: always capture model output messages for the model_call_ended
+          // hook so each physical HTTP call can log assistant text / tool JSON —
+          // not only when OTEL content capture is enabled.
+          contentCapture: {
+            ...resolveDiagnosticModelContentCapturePolicy(params.config),
+            outputMessages: true,
+            anyModelContent: true,
+          },
           nextCallId: () => `${params.runId}:model:${(diagnosticModelCallSeq += 1)}`,
           onStarted: () => {
             params.onExecutionPhase?.({

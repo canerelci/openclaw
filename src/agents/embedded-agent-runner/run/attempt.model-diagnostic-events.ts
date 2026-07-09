@@ -71,6 +71,8 @@ type ModelCallEndedHookFields = Pick<
   | "timeToFirstByteMs"
   | "failureKind"
   | "upstreamRequestIdHash"
+  | "assistantText"
+  | "usage"
 >;
 type ModelCallSizeTimingFields = Pick<
   Extract<DiagnosticEventInput, { type: "model.call.completed" }>,
@@ -427,6 +429,63 @@ function emitModelCallStarted(
   dispatchModelCallStartedHook(eventBase);
 }
 
+/** Extract a short assistant text / tool-call summary for Pryva FT4 flow steps. */
+function extractAssistantTextForHook(state: ModelCallObservationState): string | undefined {
+  const msgs = state.outputMessages;
+  if (!msgs || msgs.length === 0) {
+    return undefined;
+  }
+  try {
+    const first = msgs[0];
+    if (typeof first === "string") {
+      return first.slice(0, 16000);
+    }
+    if (first && typeof first === "object") {
+      const rec = first as Record<string, unknown>;
+      // Common shapes: { content: string | blocks[] }, { text }, { message: {...} }
+      const content =
+        rec.content ?? rec.text ?? (rec.message as Record<string, unknown> | undefined)?.content;
+      if (typeof content === "string") {
+        return content.slice(0, 16000);
+      }
+      if (Array.isArray(content)) {
+        const parts: string[] = [];
+        for (const block of content) {
+          if (typeof block === "string") {
+            parts.push(block);
+            continue;
+          }
+          if (block && typeof block === "object") {
+            const b = block as Record<string, unknown>;
+            if (typeof b.text === "string") {
+              parts.push(b.text);
+            } else if (
+              b.type === "toolCall" ||
+              b.type === "tool_use" ||
+              b.type === "functionCall"
+            ) {
+              const name = String(b.name ?? b.toolName ?? "tool");
+              const args = b.arguments ?? b.args ?? b.input;
+              parts.push(
+                `[tool_call ${name}] ${typeof args === "string" ? args : JSON.stringify(args ?? {})}`,
+              );
+            } else if (typeof b.content === "string") {
+              parts.push(b.content);
+            }
+          }
+        }
+        const joined = parts.join("\n").trim();
+        return joined ? joined.slice(0, 16000) : undefined;
+      }
+      // Fallback: compact JSON of the message
+      return JSON.stringify(first).slice(0, 16000);
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 function emitModelCallCompleted(
   eventBase: ModelCallEventBase,
   startedAt: number,
@@ -447,10 +506,12 @@ function emitModelCallCompleted(
     },
     modelContentPrivateData(modelCallCompletedContent(state)),
   );
+  const assistantText = extractAssistantTextForHook(state);
   dispatchModelCallEndedHook(eventBase, {
     durationMs,
     outcome: "completed",
     ...sizeTimingFields,
+    ...(assistantText ? { assistantText } : {}),
   });
 }
 

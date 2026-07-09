@@ -67,6 +67,8 @@ export async function onLlmOutput(
   // INPUT: consume what the llm_input hook stashed for this run (the llm_output event itself
   // carries no prompt). Falls back to event.prompt if ever populated. systemPrompt is kept too so
   // the detail view shows the FULL input (system + user), not just the user line.
+  // FT4: keep the stash until this final semantic turn so intermediate ocw_model_call
+  // steps can also attach the same prompt.
   const captured = event?.runId ? pendingLlmInput.get(event.runId) : undefined;
   if (event?.runId) {
     pendingLlmInput.delete(event.runId);
@@ -121,32 +123,37 @@ export async function onLlmOutput(
     },
   );
 
-  if (usage) {
-    await pryvaFetch(
-      pipeline.cfg,
-      "POST",
-      "/agents/me/usage",
-      {
-        model: provider ? `${provider}/${model}` : model,
-        task_type: "messaging",
-        assistant_name: "main",
-        flow_id: flowId,
-        prompt_tokens: (usage.input ?? 0) + (usage.cacheRead ?? 0),
-        completion_tokens: usage.output ?? 0,
-        metadata: {
-          source: "llm_output_hook",
-          cache_read: usage.cacheRead ?? 0,
-          cache_write: usage.cacheWrite ?? 0,
-          reasoning_effort: reasoningEffort,
-          // Full input + output so the LLM Usage tab detail shows both, not just
-          // the response (main-agent rows previously carried response only).
-          prompt: promptMessages,
-          response: outputText,
-        },
+  // FT3 hardening: always POST usage when the turn completed so LLM Usage is not
+  // hollow when the provider omitted stream usage. Prefer real tokens; mark missing.
+  const hasUsage =
+    usage &&
+    typeof usage === "object" &&
+    ((usage.input ?? 0) > 0 || (usage.output ?? 0) > 0 || (usage.cacheRead ?? 0) > 0);
+  await pryvaFetch(
+    pipeline.cfg,
+    "POST",
+    "/agents/me/usage",
+    {
+      model: provider ? `${provider}/${model}` : model,
+      task_type: "messaging",
+      assistant_name: "main",
+      flow_id: flowId,
+      prompt_tokens: hasUsage ? (usage!.input ?? 0) + (usage!.cacheRead ?? 0) : 0,
+      completion_tokens: hasUsage ? (usage!.output ?? 0) : 0,
+      metadata: {
+        source: "llm_output_hook",
+        usage_missing: !hasUsage,
+        cache_read: hasUsage ? (usage!.cacheRead ?? 0) : 0,
+        cache_write: hasUsage ? (usage!.cacheWrite ?? 0) : 0,
+        reasoning_effort: reasoningEffort,
+        // Full input + output so the LLM Usage tab detail shows both, not just
+        // the response (main-agent rows previously carried response only).
+        prompt: promptMessages,
+        response: outputText,
       },
-      { flowId },
-    );
-  }
+    },
+    { flowId },
+  );
 }
 
 export async function onAfterToolCall(
@@ -228,6 +235,34 @@ export async function onModelCallEnded(
   event: PluginHookModelCallEndedEvent,
 ): Promise<void> {
   const isError = event?.outcome === "error";
+  // FT4 Option A: attach semantic prompt when the llm_input stash is still live
+  // for this run (consumed only by onLlmOutput at attempt end). Intermediate
+  // tool-loop HTTP calls then show Input in Flows, not only transport bytes.
+  const captured = event?.runId ? pendingLlmInput.get(event.runId) : undefined;
+  const promptText =
+    captured?.prompt && captured.prompt.trim() ? captured.prompt.slice(0, LLM_INPUT_CAP) : null;
+  const systemPrompt =
+    captured?.systemPrompt && captured.systemPrompt.trim()
+      ? captured.systemPrompt.slice(0, LLM_INPUT_CAP)
+      : null;
+  const promptMessages = promptText
+    ? [
+        ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
+        { role: "user", content: promptText },
+      ]
+    : undefined;
+  // Optional per-call semantic fields when the harness plumbs them (extended event).
+  const ext = event as PluginHookModelCallEndedEvent & {
+    assistantText?: string;
+    assistantTexts?: string[];
+    usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  };
+  const assistantText =
+    (typeof ext.assistantText === "string" && ext.assistantText.trim()
+      ? ext.assistantText
+      : null) ?? (Array.isArray(ext.assistantTexts) ? ext.assistantTexts.join("\n") || null : null);
+  const outputText = assistantText ? assistantText.slice(0, LLM_OUTPUT_CAP) : null;
+
   logFlowStep(
     pipeline,
     { runId: event?.runId, sessionId: event?.sessionId, sessionKey: event?.sessionKey },
@@ -237,6 +272,8 @@ export async function onModelCallEnded(
       status: isError ? "error" : "ok",
       error: isError ? (event?.failureKind ?? event?.errorCategory ?? "model_call_error") : null,
       latency_ms: event?.durationMs ?? null,
+      input_text: promptText,
+      output_text: outputText,
       metadata: {
         provider: event?.provider ?? "unknown",
         model: event?.model ?? "unknown",
@@ -252,6 +289,10 @@ export async function onModelCallEnded(
         failure_kind: event?.failureKind ?? null,
         error_category: event?.errorCategory ?? null,
         upstream_request_id_hash: event?.upstreamRequestIdHash ?? null,
+        // FT4 semantic payload (complements physical transport fields).
+        prompt: promptMessages,
+        response: outputText,
+        tokens: ext.usage ?? null,
       },
     },
   );

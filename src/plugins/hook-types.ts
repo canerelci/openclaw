@@ -330,6 +330,18 @@ export type PluginHookModelCallEndedEvent = PluginHookModelCallBaseEvent & {
   responseStreamBytes?: number;
   timeToFirstByteMs?: number;
   upstreamRequestIdHash?: string;
+  /**
+   * Pryva FT4: optional semantic payload for this physical HTTP call.
+   * Populated when model content capture (or light hook capture) is on.
+   */
+  assistantText?: string;
+  usage?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    total?: number;
+  };
 };
 
 export type PluginHookLlmOutputEvent = {

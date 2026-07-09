@@ -104,8 +104,14 @@ export function resolveOpenAICompletionsCompatDefaults(
       knownProviderFamily !== "mistral" &&
       endpointClass !== "xai-native" &&
       !usesExplicitProxyLikeEndpoint,
+    // Pryva FT3: xAI chat completions accept OpenAI-style stream_options.include_usage.
+    // Without this, xai-native is isNonStandard → usage never requested → hollow 0-token
+    // llm_usage rows and empty ocw_llm_turn.tokens. Keep other non-standard providers
+    // gated; only lift xAI (endpointClass or default-route provider).
     supportsUsageInStreaming:
       supportsOpenAICompletionsStreamingUsageCompat ||
+      endpointClass === "xai-native" ||
+      (isDefaultRoute && isDefaultRouteProvider(input.provider, "xai")) ||
       (!isNonStandard &&
         (isLocalEndpoint ||
           !usesConfiguredNonOpenAIEndpoint ||
