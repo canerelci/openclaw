@@ -1000,6 +1000,7 @@ function createMessageSentEmitter(params: {
   to: string;
   accountId?: string;
   sessionKeyForInternalHooks?: string;
+  runIdForInternalHooks?: string;
   mirrorIsGroup?: boolean;
   mirrorGroupId?: string;
 }): { emitMessageSent: (event: MessageSentEvent) => void; hasMessageSentHooks: boolean } {
@@ -1025,6 +1026,10 @@ function createMessageSentEmitter(params: {
       // keeps the contract documented in `PluginHookMessageContext`
       // honest for both outbound delivery hooks.
       sessionKey: params.sessionKeyForInternalHooks,
+      // Per-turn exact identifier for the run that produced this payload. sessionKey is
+      // session-scoped, so a plugin correlating turn state cannot tell two turns of the
+      // same conversation apart (nor bind a send whose session key was never supplied).
+      runId: params.runIdForInternalHooks,
       messageId: event.messageId,
       isGroup: params.mirrorIsGroup,
       groupId: params.mirrorGroupId,
@@ -1073,6 +1078,7 @@ async function applyMessageSendingHook(params: {
   replyToId?: string | null;
   threadId?: string | number | null;
   sessionKey?: string;
+  runId?: string;
 }): Promise<{
   cancelled: boolean;
   cancelReason?: string;
@@ -1107,6 +1113,7 @@ async function applyMessageSendingHook(params: {
         accountId: params.accountId ?? undefined,
         conversationId: params.to,
         ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
+        ...(params.runId ? { runId: params.runId } : {}),
       },
     );
     if (sendingResult?.cancel) {
@@ -1546,6 +1553,11 @@ async function deliverOutboundPayloadsCore(
   // delivery target's policy, not the canonical control session, and
   // handing it to plugins that correlate against agent_end would be wrong.
   const sessionKeyForInternalHooks = params.mirror?.sessionKey ?? params.session?.key;
+  // The agent run that produced this payload. Only the reply paths that own a run supply it
+  // (routeReply threads it through replyPayloadSendingHook); proactive/notification sends have
+  // no run and correctly leave it undefined. Forwarded to message_sending/message_sent so a
+  // plugin can attribute a send to the exact turn instead of guessing from the session key.
+  const runIdForInternalHooks = params.replyPayloadSendingHook?.runId;
   const mirrorIsGroup = params.mirror?.isGroup;
   const mirrorGroupId = params.mirror?.groupId;
   const { emitMessageSent, hasMessageSentHooks } = createMessageSentEmitter({
@@ -1554,6 +1566,7 @@ async function deliverOutboundPayloadsCore(
     to,
     accountId,
     sessionKeyForInternalHooks,
+    runIdForInternalHooks,
     mirrorIsGroup,
     mirrorGroupId,
   });
@@ -1643,6 +1656,7 @@ async function deliverOutboundPayloadsCore(
         replyToId: resolveCurrentReplyTo(deliveryPayload).replyToId,
         threadId: params.threadId,
         sessionKey: sessionKeyForInternalHooks,
+        runId: runIdForInternalHooks,
       });
       if (hookResult.cancelled) {
         const hookEffect =

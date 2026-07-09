@@ -3247,6 +3247,86 @@ describe("deliverOutboundPayloads", () => {
     );
   });
 
+  it("threads the producing run's runId into the message_sending hook context", async () => {
+    // Contract test: a plugin correlating a send back to the exact agent turn (rather
+    // than the session, which spans turns) needs runId. routeReply supplies it via
+    // replyPayloadSendingHook; delivery must forward it to message_sending.
+    hookMocks.runner.hasHooks.mockImplementation(
+      (hookName?: string) => hookName === "message_sending",
+    );
+    const sendText = vi.fn().mockResolvedValue({
+      channel: "matrix" as const,
+      messageId: "mx-run",
+      roomId: "!room",
+    });
+    setActivePluginRegistry(
+      createTestRegistry([
+        {
+          pluginId: "matrix",
+          source: "test",
+          plugin: createOutboundTestPlugin({
+            id: "matrix",
+            outbound: { deliveryMode: "direct", sendText },
+          }),
+        },
+      ]),
+    );
+
+    await deliverOutboundPayloads({
+      cfg: {},
+      channel: "matrix",
+      to: "!room",
+      payloads: [{ text: "hello" }],
+      session: { key: "agent:tank:main" },
+      replyPayloadSendingHook: {
+        kind: "final",
+        channel: "matrix",
+        sessionKey: "agent:tank:main",
+        runId: "run-42",
+        context: { channelId: "matrix" },
+      },
+    });
+
+    expect(hookMocks.runner.runMessageSending).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ sessionKey: "agent:tank:main", runId: "run-42" }),
+    );
+  });
+
+  it("omits runId from the message_sending hook context for sends that own no run", async () => {
+    hookMocks.runner.hasHooks.mockImplementation(
+      (hookName?: string) => hookName === "message_sending",
+    );
+    const sendText = vi.fn().mockResolvedValue({
+      channel: "matrix" as const,
+      messageId: "mx-norun",
+      roomId: "!room",
+    });
+    setActivePluginRegistry(
+      createTestRegistry([
+        {
+          pluginId: "matrix",
+          source: "test",
+          plugin: createOutboundTestPlugin({
+            id: "matrix",
+            outbound: { deliveryMode: "direct", sendText },
+          }),
+        },
+      ]),
+    );
+
+    await deliverOutboundPayloads({
+      cfg: {},
+      channel: "matrix",
+      to: "!room",
+      payloads: [{ text: "hello" }],
+      session: { key: "agent:tank:main" },
+    });
+
+    const ctx = hookMocks.runner.runMessageSending.mock.calls[0]?.[1];
+    expect(ctx).not.toHaveProperty("runId");
+  });
+
   it("forwards session.key (canonical) into message_sending ctx and never falls back to policyKey", async () => {
     // Contract test for OutboundSessionContext.key semantics:
     // session.key MUST reach plugins via ctx.sessionKey, even when a
