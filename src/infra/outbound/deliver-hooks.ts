@@ -89,7 +89,12 @@ export function buildLegacyInboundMessageSendingBeforeDeliver(
       }
       const group = getGroupThreadDispatchContext();
       const result = await hookRunner.runMessageSending(
-        { content: payload.text, to: replyTarget },
+        {
+          content: payload.text,
+          to: replyTarget,
+          // Pryva: flag error replies so the outbound pipeline can surface them on ocw_llm_turn.
+          isError: payload.isError === true ? true : undefined,
+        },
         {
           ...toPluginMessageContext(hookCtx),
           ...(group ? { sessionKey: group.ctx.SessionKey, runId: group.runState.runId } : {}),
@@ -161,6 +166,8 @@ export async function applyMessageSendingHook(params: {
         content: params.payloadSummary.hookContent ?? params.payloadSummary.text,
         replyToId: params.replyToId ?? undefined,
         threadId: params.threadId ?? undefined,
+        // Pryva: flag error replies so the outbound pipeline can surface them on ocw_llm_turn.
+        isError: params.payload.isError === true ? true : undefined,
         metadata: {
           channel: params.channel,
           accountId: params.accountId,
