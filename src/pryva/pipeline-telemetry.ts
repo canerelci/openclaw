@@ -272,9 +272,37 @@ export async function onMessageSent(
   ctx: PluginHookMessageContext,
 ): Promise<void> {
   const success = event?.success === true;
+  const runId = event?.runId ?? ctx?.runId;
+  const sessionKey = event?.sessionKey ?? ctx?.sessionKey;
+
+  // Structural attribution, matching onMessageSending: try the registry (runId/sessionKey), then
+  // fall back to the matched inbound context's flowId. WHY the fallback is needed: message_sent can
+  // arrive with a NON-canonical sessionKey (raw `agent:main:telegram:default:direct:<id>`) while the
+  // flow was bound under the canonical `agent:main:main` — e.g. an intermediate `message`-tool send
+  // during a long concurrent run (planning). resolve() then misses and the delivery step went
+  // fl-unbound even though message_sending just bound the SAME send correctly. Recovering the flow
+  // from the recipient's inbound context keeps the confirmation in its send's flow tree.
+  let flowId: string | undefined;
+  const binding = pipeline.registry.resolve(runId, undefined, sessionKey);
+  if (binding) {
+    flowId = binding.flowId;
+  } else {
+    const to = event?.to;
+    const channel = ctx?.channelId;
+    const matched =
+      pipeline.ctxStore.findByRecipient(to, channel) ?? pipeline.ctxStore.findLatest();
+    const matchedFlowId =
+      matched && typeof (matched as { flowId?: string }).flowId === "string"
+        ? (matched as { flowId?: string }).flowId
+        : undefined;
+    if (matchedFlowId) flowId = matchedFlowId;
+  }
+
   logFlowStep(
     pipeline,
-    { runId: event?.runId ?? ctx?.runId, sessionKey: event?.sessionKey ?? ctx?.sessionKey },
+    // When a fallback flowId was recovered, pass it explicitly; otherwise let logFlowStep resolve
+    // from runId/sessionKey (and go fl-unbound + WARN if truly unattributable — never a fake id).
+    flowId ? { flowId } : { runId, sessionKey },
     {
       step_name: success ? "ocw_outbound_delivered" : "ocw_outbound_failed",
       step_type: "outbound",
