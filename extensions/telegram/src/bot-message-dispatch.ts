@@ -1614,12 +1614,6 @@ export const dispatchTelegramMessage = async ({
         }),
       )[0];
     };
-    const usesNativeTelegramQuote = (payload: ReplyPayload): boolean => {
-      if (replyQuoteText != null) {
-        return true;
-      }
-      return payload.replyToId != null && replyQuoteByMessageId[payload.replyToId] != null;
-    };
     const sendPayload = async (
       payload: ReplyPayload,
       options?: { durable?: boolean; silent?: boolean },
@@ -1629,6 +1623,11 @@ export const dispatchTelegramMessage = async ({
       }
       const deliverablePayload = applyQuoteReplyTarget(payload);
       const silent = options?.silent ?? (silentErrorReplies && payload.isError === true);
+      // H2 (Pryva): final replies must prefer durable delivery (deliver.ts → message_sending →
+      // Cortex/Mouth). Never require nativeQuote for durable — TG declares nativeQuote:false, so
+      // requiring it forced capability_mismatch → raw fallthrough. Raw deliverReplies also runs
+      // message_sending today, but durable is the product path we want. Quotes still go via
+      // replyTo when the payload carries replyToId.
       const durableDelivery = telegramDeps.deliverInboundReplyWithMessageSendContext;
       if (options?.durable && durableDelivery) {
         const durable = await durableDelivery({
@@ -1654,9 +1653,7 @@ export const dispatchTelegramMessage = async ({
             threadId: threadSpec.id,
             silent,
             payloadTransport: true,
-            extraCapabilities: {
-              nativeQuote: usesNativeTelegramQuote(deliverablePayload),
-            },
+            // Do NOT set nativeQuote here — adapter advertises nativeQuote:false.
           }),
         });
         if (durable.status === "failed") {
@@ -1669,6 +1666,7 @@ export const dispatchTelegramMessage = async ({
         if (durable.status === "handled_no_send") {
           return false;
         }
+        // unsupported → fall through to deliverReplies (also has message_sending hooks)
       }
       const result = await (telegramDeps.deliverReplies ?? deliverReplies)({
         ...deliveryBaseOptions,
