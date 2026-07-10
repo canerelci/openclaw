@@ -642,6 +642,14 @@ export async function prepareGatewayLifecycle(params: {
     sampleLiveness: readinessEventLoopHealth.persistentDegradationSnapshot,
   });
   configureDiagnostics(cfgAtStart);
+  // Eagerly publish if already ready at this point.
+  try {
+    if (runtimeState.cronState.cron) {
+      (globalThis as Record<string, unknown>).__pryvaHostCron = runtimeState.cronState.cron;
+    }
+  } catch {
+    // ignore
+  }
 
   return {
     ...runtime,
@@ -661,7 +669,20 @@ export async function prepareGatewayLifecycle(params: {
     kernel,
     pluginHostServices: {
       get cron() {
-        return kernel.getCronService();
+        // H1: keep process-global __pryvaHostCron in sync so schedulePluginSessionTurn
+        // can fall back when a later plugin registry loads without hostServices.
+        const cron = kernel.getCronService();
+        if (cron) {
+          try {
+            const g = globalThis as Record<string, unknown>;
+            if (!g.__pryvaHostCron) {
+              g.__pryvaHostCron = cron;
+            }
+          } catch {
+            // locked-down runtime
+          }
+        }
+        return cron;
       },
     },
     shutdownRuntime,

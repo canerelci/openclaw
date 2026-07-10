@@ -202,7 +202,26 @@ export function createPluginRegistryState(registryParams: PluginRegistryParams) 
     getNativeCatalogGate,
     allowProcessHomeSessionCatalogs: registryParams.allowProcessHomeSessionCatalogs ?? true,
     coreGatewayMethods,
-    getHostCronService: () => registryParams.hostServices?.cron,
+    getHostCronService: () => {
+      const fromHost = registryParams.hostServices?.cron;
+      if (fromHost) {
+        // H1: pin live gateway cron process-globally for later registries without hostServices.
+        try {
+          const g = globalThis as Record<string, unknown>;
+          if (!g.__pryvaHostCron) {
+            g.__pryvaHostCron = fromHost;
+          }
+        } catch {
+          // locked-down
+        }
+        return fromHost;
+      }
+      try {
+        return (globalThis as Record<string, unknown>).__pryvaHostCron as typeof fromHost | undefined;
+      } catch {
+        return undefined;
+      }
+    },
     pluginsWithChannelRegistrationConflict: new Set<string>(),
     createRegistration,
     createIdentityRegistration: <T extends object>(record: PluginRecord, contribution: T) =>

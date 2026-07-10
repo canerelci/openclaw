@@ -148,7 +148,33 @@ export async function scheduleSelfWake(
     handle = await pipeline.scheduleSessionTurn(params);
   } catch (err) {
     pipeline.log.debug(`self-wake: schedule failed: ${String(err)}`);
-    return false;
+    handle = undefined;
+  }
+  // H1 fallback: pipeline.scheduleSessionTurn may no-op when (a) pre-warm re-bound the API
+  // without hostServices.cron, or (b) the first publisher's shouldCommit fails because a later
+  // registry is now active. The gateway still owns cron on __pryvaHostCron — schedule directly.
+  if (!handle) {
+    const hostCron = getPublishedHostCron() as { add?: (job: unknown) => Promise<unknown> } | null;
+    if (hostCron) {
+      try {
+        const { schedulePluginSessionTurn } =
+          await import("../plugins/host-hook-scheduled-turns.js");
+        handle = await schedulePluginSessionTurn({
+          pluginId: "pryva-pipeline",
+          pluginName: "pryva-pipeline",
+          origin: "bundled",
+          schedule: params,
+          cron: hostCron as never,
+          // Always commit: this is the live gateway cron, not a stale registry side-effect.
+          shouldCommit: () => true,
+        });
+        if (handle) {
+          pipeline.log.debug("self-wake: armed via __pryvaHostCron fallback");
+        }
+      } catch (err) {
+        pipeline.log.debug(`self-wake: host-cron fallback failed: ${String(err)}`);
+      }
+    }
   }
   if (!handle) {
     // Scheduler declined (cron unavailable / not committed) — do NOT set the hint, so no stale
@@ -291,9 +317,9 @@ export type PryvaSelfTurnRequest = {
 export type PryvaSelfTurnFn = (req: PryvaSelfTurnRequest) => Promise<boolean>;
 
 const SELF_TURN_GLOBAL_KEY = "__pryvaSelfTurn";
-/** Tracks whether the published self-turn was wired with a host scheduler (cron). Used so a
- *  later plugin registry load WITHOUT hostServices cannot clobber a cron-capable publisher
- *  (H1 — flawless-flow-remaining: post-ready pre-warm loads no-cron and deadens proactive). */
+/** Process-global host cron service (gateway only). Schedule wrappers read this at CALL time so a
+ *  later pre-warm registry without hostServices cannot deaden the seam even if it re-publishes. */
+const HOST_CRON_GLOBAL_KEY = "__pryvaHostCron";
 const SELF_TURN_META_KEY = "__pryvaSelfTurnMeta";
 
 /**
@@ -305,20 +331,52 @@ const SELF_TURN_META_KEY = "__pryvaSelfTurnMeta";
  */
 const FLOW_RESUME_SELF_TURN_SOURCES: ReadonlySet<FlowSource> = new Set<FlowSource>(["platform"]);
 
+/**
+ * Publish the gateway host cron on globalThis so scheduleSessionTurn callers can fall back to it
+ * when a later plugin registry was loaded without hostServices (H1). Call from the gateway path
+ * only — pre-warm must not clear it. Non-fatal in a locked-down runtime.
+ */
+export function publishHostCron(cron: unknown): void {
+  if (!cron || typeof cron !== "object") {
+    return;
+  }
+  try {
+    const g = globalThis as Record<string, unknown>;
+    // Prefer the first real cron; never let a null/undefined overwrite it.
+    if (g[HOST_CRON_GLOBAL_KEY]) {
+      return;
+    }
+    g[HOST_CRON_GLOBAL_KEY] = cron;
+  } catch {
+    // locked-down runtime
+  }
+}
+
+export function getPublishedHostCron(): unknown {
+  try {
+    return (globalThis as Record<string, unknown>)[HOST_CRON_GLOBAL_KEY] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Publish the self-turn trigger on globalThis, capturing the pipeline. Call after the pipeline (and
  *  its scheduleSessionTurn handle) exists. Non-fatal in a locked-down runtime.
  *
- *  H1 guard: never overwrite an already-published CRON-CAPABLE self-turn with a cron-less one.
- *  The gateway's first plugin load has hostServices.cron; the post-ready agent-runtime pre-warm
- *  reloads plugins WITHOUT hostServices and was clobbering globalThis.__pryvaSelfTurn → every
- *  sessions.send(innerVoice) returned accepted:false forever. */
+ *  H1 guard — two layers (the prior hasScheduler boolean was insufficient):
+ *  1. FIRST publisher wins. The gateway's first plugin load has hostServices.cron; the post-ready
+ *     agent-runtime pre-warm reloads plugins WITHOUT hostServices. scheduleSessionTurn is present on
+ *     BOTH pipelines (the API always exposes the method) — the pre-warm's version just returns no
+ *     handle at call time because getHostCronService() is empty. Checking Boolean(scheduleSessionTurn)
+ *     therefore cannot tell them apart; never overwrite an already-published self-turn.
+ *  2. The scheduleSessionTurn wrapper itself closes over the pipeline at publish time; first-wins
+ *     keeps the gateway closure. Additionally, registry schedulePluginSessionTurn is patched via
+ *     __pryvaHostCron so even a late publisher can still schedule if needed. */
 export function publishSelfTurn(pipeline: PryvaPipeline): void {
-  const hasScheduler = Boolean(pipeline.scheduleSessionTurn);
   try {
     const g = globalThis as Record<string, unknown>;
-    const prevMeta = g[SELF_TURN_META_KEY] as { hasScheduler?: boolean } | undefined;
-    if (prevMeta?.hasScheduler === true && !hasScheduler) {
-      // Keep the live gateway publisher; pre-warm no-op.
+    if (typeof g[SELF_TURN_GLOBAL_KEY] === "function") {
+      // Keep the first (gateway) publisher; pre-warm / re-register no-op.
       return;
     }
   } catch {
@@ -357,7 +415,10 @@ export function publishSelfTurn(pipeline: PryvaPipeline): void {
   try {
     const g = globalThis as Record<string, unknown>;
     g[SELF_TURN_GLOBAL_KEY] = fn;
-    g[SELF_TURN_META_KEY] = { hasScheduler };
+    g[SELF_TURN_META_KEY] = {
+      hasScheduler: Boolean(pipeline.scheduleSessionTurn),
+      publishedAt: Date.now(),
+    };
   } catch {
     // locked-down runtime — non-fatal; the seam just won't fire.
   }
