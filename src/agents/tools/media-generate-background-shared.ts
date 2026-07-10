@@ -56,7 +56,51 @@ export type MediaGenerationTaskHandle = {
   requesterSessionKey: string;
   requesterOrigin?: DeliveryContext;
   taskLabel: string;
+  /**
+   * H4: parent flow id of the turn that launched this media task (captured at create
+   * time from globalThis.__pryvaFlowRegistry). On completion the wake must RE-ENTER
+   * this flow (flow_resume source=tool_completion), not mint a new source=system flow.
+   */
+  parentFlowId?: string;
 };
+
+/** Read the live session's flow id from the Pryva registry (process-global; may be absent). */
+function resolveParentFlowIdForSession(sessionKey: string): string | undefined {
+  try {
+    const reg = (globalThis as Record<string, unknown>).__pryvaFlowRegistry as
+      | {
+          getFlowForSession?: (key: string) => { flowId?: string } | null;
+        }
+      | undefined;
+    const binding = reg?.getFlowForSession?.(sessionKey);
+    const id = binding?.flowId;
+    return typeof id === "string" && id.startsWith("fl-") && id !== "fl-unbound" ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Attach parent flow so the completion agent turn resumes it (H4). */
+function attachParentFlowForMediaWake(sessionKey: string, parentFlowId: string | undefined): void {
+  if (!parentFlowId) {
+    return;
+  }
+  try {
+    const reg = (globalThis as Record<string, unknown>).__pryvaFlowRegistry as
+      | {
+          attachExternalFlowBySession?: (
+            sessionKey: string,
+            flowId: string,
+            source: string,
+            parentFlowId?: string,
+          ) => void;
+        }
+      | undefined;
+    reg?.attachExternalFlowBySession?.(sessionKey, parentFlowId, "tool_completion", parentFlowId);
+  } catch {
+    // non-fatal — completion still delivers; flow may mint system (status quo)
+  }
+}
 
 /** Schedules detached media generation work. */
 export type MediaGenerateBackgroundScheduler = (work: () => Promise<void>) => void;
@@ -192,12 +236,14 @@ function createMediaGenerationTaskRun(params: {
     if (!task) {
       return null;
     }
-    const handle = {
+    const handle: MediaGenerationTaskHandle = {
       taskId: task.taskId,
       runId,
       requesterSessionKey: sessionKey,
       requesterOrigin,
       taskLabel: params.prompt,
+      // H4: pin parent flow at launch so completion can resume the same tree
+      parentFlowId: resolveParentFlowIdForSession(sessionKey),
     };
     touchMediaGenerationTaskRunContext(handle);
     return handle;
@@ -583,6 +629,11 @@ async function wakeMediaGenerationTaskCompletion(params: {
   const triggerMessage =
     formatAgentInternalEventsForPrompt(internalEvents) ||
     `A ${params.completionLabel} generation task finished. Process the completion update now.`;
+  // H4: re-enter the parent flow that launched this media task (not a fresh source=system flow).
+  // Prefer the handle's pinned parentFlowId; fall back to whatever the session currently holds.
+  const parentFlowId =
+    params.handle.parentFlowId ?? resolveParentFlowIdForSession(params.handle.requesterSessionKey);
+  attachParentFlowForMediaWake(params.handle.requesterSessionKey, parentFlowId);
   const delivery = await deliverSubagentAnnouncement({
     requesterSessionKey: params.handle.requesterSessionKey,
     targetRequesterSessionKey: params.handle.requesterSessionKey,

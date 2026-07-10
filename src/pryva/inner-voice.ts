@@ -291,6 +291,10 @@ export type PryvaSelfTurnRequest = {
 export type PryvaSelfTurnFn = (req: PryvaSelfTurnRequest) => Promise<boolean>;
 
 const SELF_TURN_GLOBAL_KEY = "__pryvaSelfTurn";
+/** Tracks whether the published self-turn was wired with a host scheduler (cron). Used so a
+ *  later plugin registry load WITHOUT hostServices cannot clobber a cron-capable publisher
+ *  (H1 — flawless-flow-remaining: post-ready pre-warm loads no-cron and deadens proactive). */
+const SELF_TURN_META_KEY = "__pryvaSelfTurnMeta";
 
 /**
  * Self-turn sources that RE-ENTER an externally-minted flow (flow_resume) instead of minting a new
@@ -302,8 +306,25 @@ const SELF_TURN_GLOBAL_KEY = "__pryvaSelfTurn";
 const FLOW_RESUME_SELF_TURN_SOURCES: ReadonlySet<FlowSource> = new Set<FlowSource>(["platform"]);
 
 /** Publish the self-turn trigger on globalThis, capturing the pipeline. Call after the pipeline (and
- *  its scheduleSessionTurn handle) exists. Non-fatal in a locked-down runtime. */
+ *  its scheduleSessionTurn handle) exists. Non-fatal in a locked-down runtime.
+ *
+ *  H1 guard: never overwrite an already-published CRON-CAPABLE self-turn with a cron-less one.
+ *  The gateway's first plugin load has hostServices.cron; the post-ready agent-runtime pre-warm
+ *  reloads plugins WITHOUT hostServices and was clobbering globalThis.__pryvaSelfTurn → every
+ *  sessions.send(innerVoice) returned accepted:false forever. */
 export function publishSelfTurn(pipeline: PryvaPipeline): void {
+  const hasScheduler = Boolean(pipeline.scheduleSessionTurn);
+  try {
+    const g = globalThis as Record<string, unknown>;
+    const prevMeta = g[SELF_TURN_META_KEY] as { hasScheduler?: boolean } | undefined;
+    if (prevMeta?.hasScheduler === true && !hasScheduler) {
+      // Keep the live gateway publisher; pre-warm no-op.
+      return;
+    }
+  } catch {
+    // ignore meta read failures
+  }
+
   const fn: PryvaSelfTurnFn = async (req) => {
     if (!req?.sessionKey || !req?.thought) {
       return false;
@@ -334,7 +355,9 @@ export function publishSelfTurn(pipeline: PryvaPipeline): void {
     });
   };
   try {
-    (globalThis as Record<string, unknown>)[SELF_TURN_GLOBAL_KEY] = fn;
+    const g = globalThis as Record<string, unknown>;
+    g[SELF_TURN_GLOBAL_KEY] = fn;
+    g[SELF_TURN_META_KEY] = { hasScheduler };
   } catch {
     // locked-down runtime — non-fatal; the seam just won't fire.
   }
