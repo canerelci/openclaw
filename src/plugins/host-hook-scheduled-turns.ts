@@ -321,6 +321,9 @@ export async function schedulePluginSessionTurn(params: {
       delivery: {
         mode: cronDeliveryMode,
         ...(cronDeliveryMode === "announce" ? { channel: "last" } : {}),
+        // Opt-in: suppress the owner-facing "Cron job ... failed" announce for background
+        // self-turns the scheduling plugin already observes/retries itself.
+        ...(params.schedule.bestEffort === true ? { bestEffort: true } : {}),
       },
     });
   } catch (error) {

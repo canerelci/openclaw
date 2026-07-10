@@ -255,6 +255,11 @@ type PluginSessionTurnScheduleCommonParams = {
   message: string;
   agentId?: string;
   deliveryMode?: "none" | "announce";
+  /** When true, a failed run is logged but NOT announced to the session/owner (maps to the cron
+   *  job's delivery.bestEffort). For plugin-driven background self-turns whose failures the
+   *  scheduling side already observes and retries — raw ⚠️ cron errors reaching the owner's chat
+   *  are pure noise (owner incident 2026-07-11). */
+  bestEffort?: boolean;
   name?: string;
   /** Optional cleanup tag. Reserved cron-name delimiters like `:` are rejected. */
   tag?: string;
