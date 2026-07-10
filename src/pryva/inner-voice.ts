@@ -139,6 +139,10 @@ export async function scheduleSelfWake(
     delayMs,
     deleteAfterRun: true,
     deliveryMode: "announce",
+    // A failed self-wake must not spam the owner with a raw "⚠️ Cron job … failed:
+    // FallbackSummaryError…" message (observed live 2026-07-11, DNS outage): the backend's
+    // outcome observer already sees the silence and reschedules/rephrases. Log-only.
+    bestEffort: true,
     tag,
     ...(opts.agentId ? { agentId: opts.agentId } : {}),
   };

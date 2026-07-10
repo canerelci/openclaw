@@ -17,36 +17,63 @@ const TR_HINT_RE =
   /[ığşçöüİĞŞÇÖÜ]|\b(bir|bunu|için|nas[ıi]l|gönderi|görsel|hikaye|istiyorum|olsun|şöyle|öneri|haz[ıi]rla|lütfen)\b/i;
 
 // Deliberately varied so a real person shows through, not a bot repeating one
-// stock line. Each pool means the same thing ("got it — checking, give me a
-// moment") in many natural registers; the picker never repeats back-to-back.
-const ACK_TR = [
+// stock line. TWO registers, picked by what the owner's message actually is:
+//  - CHECKING ("bir bakayım / let me look"): the owner ASKED something — we go find the
+//    answer, so "looking into it" is literally true.
+//  - WORKING ("anladım, çalışayım / got it, I'll work with that"): the owner gave
+//    information, an answer, or direction — there is nothing to "look at"; saying
+//    "hemen bakıyorum" to a brief reads like a toy robot (owner incident 2026-07-11).
+// Each pool means the same thing in many natural registers; the picker never repeats
+// back-to-back.
+const ACK_CHECK_TR = [
   "Bir bakayım…",
   "Hemen bakıyorum…",
   "Tamam, bakıyorum…",
   "Anladım, bir bakayım…",
   "Bir saniye, kontrol ediyorum…",
   "Şuna bir bakıp döneyim…",
-  "Hemen ilgileniyorum…",
   "Bir dakika, kontrol edeyim…",
-  "Tamam, birazdan dönerim…",
-  "Hallediyorum, bir saniye…",
   "Kontrol ediyorum, az bekle…",
   "Bakıyorum, biraz zaman ver…",
 ];
-const ACK_EN = [
+const ACK_CHECK_EN = [
   "Let me look into this…",
-  "On it — one sec…",
   "Checking, back in a moment…",
-  "Give me a sec…",
   "Got it, taking a look…",
   "One moment, let me check…",
   "Sure, looking into it…",
-  "On it — back shortly…",
   "Let me take a look…",
   "Hang on, checking…",
-  "Alright, on it…",
   "Give me a moment to check…",
 ];
+const ACK_WORK_TR = [
+  "Anladım. Biraz çalışayım…",
+  "Anladım, buna göre ilerliyorum…",
+  "Tamam, not aldım — çalışmaya başlıyorum…",
+  "Anlaşıldı, ben ilgileniyorum…",
+  "Tamam, bu netleşti. Devam ediyorum…",
+  "Not ettim, üzerinde çalışıyorum…",
+  "Anladım. Gerisini bana bırak…",
+  "Tamam, buradan ben alıyorum…",
+  "Hallediyorum, bir saniye…",
+];
+const ACK_WORK_EN = [
+  "Got it. Let me work on this…",
+  "Understood — proceeding with that…",
+  "Noted, I'll take it from here…",
+  "Makes sense. On it…",
+  "Got it, I'll shape things accordingly…",
+  "Understood. Give me a bit…",
+  "Noted — working with that…",
+  "Alright, on it…",
+];
+
+// Is the owner ASKING us something (→ CHECKING register)? A question mark anywhere, a
+// Turkish interrogative particle/word, or an English wh-/aux-inversion opener. Anything
+// else — statements, answers, briefs, directives — takes the WORKING register: for those
+// there is nothing to "check", only work to absorb and act on.
+const QUESTION_RE =
+  /\?|(^|\s)(mi|mı|mu|mü|midir|mıdır|musun|müsün|misin|mısın|nasıl|neden|niye|niçin|hangi|hangisi|ne zaman|nerede|nereden|kaç|kim|var m[ıi])(\s|$|[.,!…])|(^|\s)(what|how|why|when|where|which|who|can you|could you|would you|will you|do you|did you|are you|is it|is there|any idea)\b/i;
 
 // Last ack we emitted (across both pools). Kept process-local so consecutive
 // messages don't draw the same line twice in a row — the single most visible
@@ -73,7 +100,15 @@ export function fastAckText(content: string): string | null {
   if (TRIVIAL_ACK_RE.test(s)) {
     return null;
   }
-  const pool = TR_HINT_RE.test(s) ? ACK_TR : ACK_EN;
+  const turkish = TR_HINT_RE.test(s);
+  const asking = QUESTION_RE.test(s);
+  const pool = asking
+    ? turkish
+      ? ACK_CHECK_TR
+      : ACK_CHECK_EN
+    : turkish
+      ? ACK_WORK_TR
+      : ACK_WORK_EN;
   return pickAck(pool);
 }
 
@@ -86,5 +121,11 @@ export function fastAckText(content: string): string | null {
  */
 export function isFastAck(content: string): boolean {
   const s = (content || "").trim();
-  return s.length > 0 && (ACK_TR.includes(s) || ACK_EN.includes(s));
+  return (
+    s.length > 0 &&
+    (ACK_CHECK_TR.includes(s) ||
+      ACK_CHECK_EN.includes(s) ||
+      ACK_WORK_TR.includes(s) ||
+      ACK_WORK_EN.includes(s))
+  );
 }
