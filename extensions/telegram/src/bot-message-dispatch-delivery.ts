@@ -257,15 +257,16 @@ export async function sendPayload(
         ...(options?.textMode === "html" ? { parseMode: "HTML" as const } : {}),
       },
       silent,
+      // H2 (Pryva): final replies must prefer durable delivery (deliver.ts → message_sending →
+      // Cortex/Mouth). Never require nativeQuote for durable — TG declares nativeQuote:false, so
+      // requiring it forced capability_mismatch → raw fallthrough. Quotes still go via replyTo
+      // when the payload carries replyToId.
       requiredCapabilities: deriveDurableFinalDeliveryRequirements({
         payload: effectivePayload,
         replyToId: effectivePayload.replyToId,
         threadId: turn.context.threadSpec.id,
         silent,
         payloadTransport: true,
-        extraCapabilities: {
-          nativeQuote: !consumedSingleUseReply && usesNativeTelegramQuote(turn, effectivePayload),
-        },
       }),
     });
     if (durable.status === "failed") {
@@ -280,6 +281,7 @@ export async function sendPayload(
       await projectionSequence.fail();
       return { ...durable.delivery, visibleReplySent: false };
     }
+    // unsupported → fall through to deliverStructuredReplies (also has message_sending hooks)
   }
   try {
     const transcriptMirror = createTelegramTranscriptMirror(turn, sourceTurn);
