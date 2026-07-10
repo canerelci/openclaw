@@ -257,7 +257,31 @@ export async function schedulePluginSessionTurn(params: {
   if (params.shouldCommit && !params.shouldCommit()) {
     return undefined;
   }
-  if (!params.cron) {
+  // H1: fall back to process-global host cron published by the gateway. Pre-warm /
+  // standalone plugin reloads pass no hostServices, so params.cron is empty even
+  // though the gateway cron is live in this same process. Prefer params.cron, then
+  // the published global (never invent a cron that doesn't exist).
+  const publishedCron = (() => {
+    try {
+      return (globalThis as Record<string, unknown>).__pryvaHostCron as
+        | CronServiceContract
+        | undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+  if (params.cron) {
+    try {
+      const g = globalThis as Record<string, unknown>;
+      if (!g.__pryvaHostCron) {
+        g.__pryvaHostCron = params.cron;
+      }
+    } catch {
+      // locked-down runtime
+    }
+  }
+  const cron = params.cron ?? publishedCron;
+  if (!cron) {
     // No host scheduler in this process is an expected condition, not a failure:
     // the gateway owns the persistent cron, but bundled plugins also load in
     // one-shot `openclaw agent --local` subprocesses (CLI/backend-driven turns)
@@ -273,7 +297,6 @@ export async function schedulePluginSessionTurn(params: {
     );
     return undefined;
   }
-  const cron = params.cron;
   const cronJobName = buildPluginSchedulerCronName({
     pluginId: params.pluginId,
     sessionKey,

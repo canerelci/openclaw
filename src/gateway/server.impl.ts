@@ -984,9 +984,30 @@ export async function startGatewayServer(
   deps.cron = runtimeState.cronState.cron;
   const pluginHostServices = {
     get cron() {
-      return runtimeState.cronState.cron;
+      // H1: keep process-global __pryvaHostCron in sync so schedulePluginSessionTurn
+      // can fall back when a later plugin registry loads without hostServices.
+      const cron = runtimeState.cronState.cron;
+      if (cron) {
+        try {
+          const g = globalThis as Record<string, unknown>;
+          if (!g.__pryvaHostCron) {
+            g.__pryvaHostCron = cron;
+          }
+        } catch {
+          // locked-down runtime
+        }
+      }
+      return cron;
     },
   };
+  // Eagerly publish if already ready at this point.
+  try {
+    if (runtimeState.cronState.cron) {
+      (globalThis as Record<string, unknown>).__pryvaHostCron = runtimeState.cronState.cron;
+    }
+  } catch {
+    // ignore
+  }
 
   let closePreludeStarted = false;
   let postReadyMaintenanceTimer: ReturnType<typeof setTimeout> | null = null;

@@ -414,7 +414,26 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
   ).toSorted();
   registry.coreGatewayMethodNames = coreGatewayMethodNames;
   const coreGatewayMethods = new Set(coreGatewayMethodNames);
-  const getHostCronService = () => registryParams.hostServices?.cron;
+  const getHostCronService = () => {
+    const fromHost = registryParams.hostServices?.cron;
+    if (fromHost) {
+      // H1: pin live gateway cron process-globally for later registries without hostServices.
+      try {
+        const g = globalThis as Record<string, unknown>;
+        if (!g.__pryvaHostCron) {
+          g.__pryvaHostCron = fromHost;
+        }
+      } catch {
+        // locked-down
+      }
+      return fromHost;
+    }
+    try {
+      return (globalThis as Record<string, unknown>).__pryvaHostCron as typeof fromHost | undefined;
+    } catch {
+      return undefined;
+    }
+  };
   const pluginHookRollback = new Map<string, HookRollbackEntry[]>();
   const pluginsWithChannelRegistrationConflict = new Set<string>();
   const pluginSideEffectGuards = new Map<string, Set<PluginSideEffectGuard>>();
