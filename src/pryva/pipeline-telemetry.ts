@@ -230,9 +230,19 @@ export async function onAfterToolCall(
 ): Promise<void> {
   const toolName = event?.toolName || "unknown";
   const error = event?.error ?? null;
-  // Feed the zero-tool stalling gate: a run that called a work tool cannot be accused of
-  // promising work it never started. Recorded even when the call errored — the agent DID act.
-  noteToolCall(event?.runId, toolName);
+  // Feed the zero-tool stalling gate + H3 Cortex tool evidence: a run that called a work
+  // tool cannot be accused of promising work it never started. Recorded even when the call
+  // errored — the agent DID act. Summary goes to Cortex so true "logo hazır" claims stay grounded.
+  const resultSnippet =
+    event?.result != null
+      ? typeof event.result === "string"
+        ? event.result
+        : JSON.stringify(event.result)
+      : "";
+  noteToolCall(event?.runId, toolName, {
+    summary: resultSnippet.slice(0, 220),
+    error: error,
+  });
   logFlowStep(
     pipeline,
     { runId: event?.runId },

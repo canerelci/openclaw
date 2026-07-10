@@ -34,7 +34,51 @@ export type MediaGenerationTaskHandle = {
   detach: boolean;
   requesterTranscript?: SessionTranscriptTargetBinding & { lifecycleRevision: string | null };
   taskLabel: string;
+  /**
+   * H4: parent flow id of the turn that launched this media task (captured at create
+   * time from globalThis.__pryvaFlowRegistry). On completion the wake must RE-ENTER
+   * this flow (flow_resume source=tool_completion), not mint a new source=system flow.
+   */
+  parentFlowId?: string;
 };
+
+/** Read the live session's flow id from the Pryva registry (process-global; may be absent). */
+export function resolveParentFlowIdForSession(sessionKey: string): string | undefined {
+  try {
+    const reg = (globalThis as Record<string, unknown>).__pryvaFlowRegistry as
+      | {
+          getFlowForSession?: (key: string) => { flowId?: string } | null;
+        }
+      | undefined;
+    const binding = reg?.getFlowForSession?.(sessionKey);
+    const id = binding?.flowId;
+    return typeof id === "string" && id.startsWith("fl-") && id !== "fl-unbound" ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Attach parent flow so the completion agent turn resumes it (H4). */
+function attachParentFlowForMediaWake(sessionKey: string, parentFlowId: string | undefined): void {
+  if (!parentFlowId) {
+    return;
+  }
+  try {
+    const reg = (globalThis as Record<string, unknown>).__pryvaFlowRegistry as
+      | {
+          attachExternalFlowBySession?: (
+            sessionKey: string,
+            flowId: string,
+            source: string,
+            parentFlowId?: string,
+          ) => void;
+        }
+      | undefined;
+    reg?.attachExternalFlowBySession?.(sessionKey, parentFlowId, "tool_completion", parentFlowId);
+  } catch {
+    // non-fatal — completion still delivers; flow may mint system (status quo)
+  }
+}
 
 /** Preserve an undelivered result in its original conversation without resending it. */
 export async function retainBlockedMediaCompletion(params: {
@@ -212,6 +256,11 @@ export async function wakeMediaGenerationTaskCompletion(params: {
     },
   ];
   const triggerMessage = formatAgentInternalEventsForPrompt(internalEvents);
+  // H4: re-enter the parent flow that launched this media task (not a fresh source=system flow).
+  // Prefer the handle's pinned parentFlowId; fall back to whatever the session currently holds.
+  const parentFlowId =
+    handle.parentFlowId ?? resolveParentFlowIdForSession(handle.requesterSessionKey);
+  attachParentFlowForMediaWake(handle.requesterSessionKey, parentFlowId);
   const delivery = await deliverSubagentAnnouncement({
     isSourceSessionAdmissionAllowed: isSourceCurrent,
     isSourceSessionEffectsAllowed: isSourceCurrent,

@@ -25,7 +25,12 @@ import { neutralizeErrorReply } from "./error-reply.js";
 import { UNBOUND_FLOW_ID } from "./flow-registry.js";
 import { logFlowStep, type PryvaPipeline } from "./pipeline.js";
 import { baseStripOutbound, guardRoleBreak } from "./sanitize.js";
-import { demoteEmptyPromise, isStallingTurn } from "./stalling.js";
+import {
+  demoteEmptyPromise,
+  getToolCallsCount,
+  getToolEvidence,
+  isStallingTurn,
+} from "./stalling.js";
 
 /**
  * Find the inbound context for an outbound recipient — USED ONLY to fetch the
@@ -123,12 +128,44 @@ export async function onMessageSending(
   // Cortex's rewrite and otherwise let the sanitized content pass. Skipped for
   // short messages: canned acks ("Hemen bakıyorum…") were burning a ~7s LLM QA
   // call on 16 characters — nothing that short needs a quality gate.
+  // H2/H3: always send real tool evidence so Cortex cannot demote tool-backed truth;
+  // log when we skip so operators can see why a turn had no pipeline_cortex step.
+  // H2: always record that message_sending saw this outbound (proves deliver.ts path ran).
+  logFlowStep(
+    pipeline,
+    { flowId },
+    {
+      step_name: "ocw_message_sending",
+      step_type: "internal",
+      status: "ok",
+      input_text: content.slice(0, 300),
+      metadata: {
+        is_ack: isAck,
+        length: content.length,
+        cortex: !isAck && !pipeline.cfg.pipeline.disableCortex && content.length > 40,
+        channel: channel ?? null,
+        to: to ?? null,
+      },
+    },
+  );
+
   if (!isAck && !pipeline.cfg.pipeline.disableCortex && content.length > 40) {
+    const toolEvidence = getToolEvidence(runId);
+    const toolCallsCount = getToolCallsCount(runId);
+    const recipientIsOwner = earPlan?.is_owner === true || binding?.source === "owner_message";
     const payload: Record<string, unknown> = {
       draft: content,
       original_message: original,
       channel: channel ?? "unknown",
       recipient_id: to ?? null,
+      recipient_is_owner: recipientIsOwner,
+      // H3: always send count + evidence (not only when draft is "vague")
+      tool_calls_count: toolCallsCount,
+      tool_evidence: toolEvidence.map((t) => ({
+        name: t.name,
+        summary: t.summary,
+        status: t.status,
+      })),
     };
     if (earPlan) {
       payload.intent = earPlan.intent;
@@ -145,6 +182,8 @@ export async function onMessageSending(
     } else if (result?.action === "block") {
       pipeline.log.warn(`cortex flagged outbound to ${to ?? "?"} (passing through) [${flowId}]`);
     }
+  } else if (!isAck && content.length > 40 && pipeline.cfg.pipeline.disableCortex) {
+    pipeline.log.warn(`cortex skipped (disabled) for outbound to ${to ?? "?"} [${flowId}]`);
   }
 
   // Mouth polish when the draft needs formatting help.

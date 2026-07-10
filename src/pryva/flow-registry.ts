@@ -63,7 +63,11 @@ export type FlowSource =
   // `subagent` is only ever a flow_resume source: an OCW subagent (sessions_spawn)
   // re-enters its PARENT (requester) flow so its work joins the same tree. Never a
   // new trigger. (Distinct from `ncw_completion`, which is a backend job.)
-  | "subagent";
+  | "subagent"
+  // `tool_completion` = a detached media/tool task (image_generate etc.) finishing and
+  // waking the requester session. Always a flow_resume of the parent turn that launched
+  // the tool — never a new source=system flow (H4).
+  | "tool_completion";
 
 /** A flow's structural binding to a run/session. */
 export type FlowBinding = {

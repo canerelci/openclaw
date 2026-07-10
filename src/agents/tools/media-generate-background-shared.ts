@@ -51,6 +51,7 @@ import { resolveAnnounceOrigin } from "../subagents/announce/subagent-announce-o
 import { resolveRequesterStoreKey } from "../subagents/announce/subagent-requester-store-key.js";
 import { captureGatewayToolCallerAssertion } from "./gateway-caller-context.js";
 import {
+  resolveParentFlowIdForSession,
   retainBlockedMediaCompletion,
   retainBlockedMediaReferences,
   wakeMediaGenerationTaskCompletion,
@@ -297,7 +298,7 @@ async function createMediaGenerationTaskRun(
       lastEventAt: Date.now(),
       progressSummary: params.queuedProgressSummary,
     });
-    const handle = {
+    const handle: MediaGenerationTaskHandle = {
       taskId: task.taskId,
       runId,
       requesterSessionKey: sessionKey,
@@ -306,6 +307,8 @@ async function createMediaGenerationTaskRun(
       detach: Boolean(requesterTranscript) && shouldDetachMediaGenerationTask(sessionKey, entry),
       requesterTranscript,
       taskLabel: params.prompt,
+      // H4: pin parent flow at launch so completion can resume the same tree
+      parentFlowId: resolveParentFlowIdForSession(sessionKey),
     };
     touchMediaGenerationTaskRunContext(handle);
     return handle;

@@ -36,32 +36,69 @@ const MESSAGING_TOOLS = new Set(["message"]);
  * promises a deliverable — and by then the run is far older than any live turn.
  */
 const workToolRuns = new Map<string, number>();
+/** H3: per-run tool evidence for Cortex (name + short summary). Same TTL as workToolRuns. */
+export type ToolEvidenceEntry = { name: string; summary: string; status: "ok" | "error" };
+const toolEvidenceByRun = new Map<string, { at: number; tools: ToolEvidenceEntry[] }>();
 const WORK_TOOL_TTL_MS = 10 * 60 * 1000;
+const MAX_EVIDENCE_PER_RUN = 24;
 
 function pruneWorkToolRuns(now: number): void {
-  if (workToolRuns.size < 256) {
+  if (workToolRuns.size < 256 && toolEvidenceByRun.size < 256) {
     return;
   }
   for (const [runId, at] of workToolRuns) {
     if (now - at > WORK_TOOL_TTL_MS) {
       workToolRuns.delete(runId);
+      toolEvidenceByRun.delete(runId);
+    }
+  }
+  for (const [runId, entry] of toolEvidenceByRun) {
+    if (now - entry.at > WORK_TOOL_TTL_MS) {
+      toolEvidenceByRun.delete(runId);
     }
   }
 }
 
 /** Record that `runId` called a tool that does real work (anything but pure messaging). */
-export function noteToolCall(runId: string | undefined, toolName: string): void {
+export function noteToolCall(
+  runId: string | undefined,
+  toolName: string,
+  opts?: { summary?: string; error?: string | null },
+): void {
   if (!runId || MESSAGING_TOOLS.has(toolName)) {
     return;
   }
   const now = Date.now();
   pruneWorkToolRuns(now);
   workToolRuns.set(runId, now);
+  const status: "ok" | "error" = opts?.error ? "error" : "ok";
+  const summary =
+    (opts?.summary && opts.summary.trim()) ||
+    (opts?.error ? `error: ${String(opts.error).slice(0, 160)}` : "ok");
+  const entry = toolEvidenceByRun.get(runId) ?? { at: now, tools: [] };
+  entry.at = now;
+  entry.tools.push({ name: toolName, summary: summary.slice(0, 220), status });
+  if (entry.tools.length > MAX_EVIDENCE_PER_RUN) {
+    entry.tools = entry.tools.slice(-MAX_EVIDENCE_PER_RUN);
+  }
+  toolEvidenceByRun.set(runId, entry);
 }
 
 /** Did this run actually do something beyond talking? Unknown/evicted run → false. */
 export function runUsedWorkTools(runId: string | undefined): boolean {
   return Boolean(runId && workToolRuns.has(runId));
+}
+
+/** H3: tool evidence for Cortex payload. */
+export function getToolEvidence(runId: string | undefined): ToolEvidenceEntry[] {
+  if (!runId) {
+    return [];
+  }
+  return toolEvidenceByRun.get(runId)?.tools ?? [];
+}
+
+export function getToolCallsCount(runId: string | undefined): number {
+  return getToolEvidence(runId).length;
 }
 
 // A produce/send/fix verb in Turkish progressive (-ıyorum/-iyoruz) or future (-acağım/-eceğiz).
