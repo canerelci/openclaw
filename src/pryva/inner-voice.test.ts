@@ -46,6 +46,15 @@ describe("buildInnerVoiceMessage", () => {
     expect(msg).toContain("NO_REPLY");
     expect(msg).toContain("ONE short message");
   });
+
+  it("mustSpeak drops the 'nothing worth saying' escape and requires a message", () => {
+    const msg = buildInnerVoiceMessage("the weekly plan is ready — tell the owner", true);
+    expect(msg).toContain("you MUST tell them");
+    expect(msg).toContain("Do not stay");
+    // The only NO_REPLY still allowed is the owner-already-wrote guard, never "nothing worth saying".
+    expect(msg).not.toContain("nothing worth saying");
+    expect(msg).toContain("already written");
+  });
 });
 
 describe("FlowRegistry session source hint (inner-voice attribution)", () => {

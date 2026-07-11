@@ -279,6 +279,11 @@ export const SessionsSendParamsSchema = Type.Object(
     // (additionalProperties:false) — every delayed self-wake failed with INVALID_REQUEST, silently
     // degrading to "never fires" (owner-observed 2026-07-11: an inner-voice wake never delivered).
     delaySeconds: Type.Optional(Type.Number({ minimum: 0 })),
+    // Required owner notification: drop the innerVoice "nothing worth saying → NO_REPLY" escape so a
+    // finished background job the owner is waiting on (e.g. a weekly plan ready for approval) is
+    // always delivered. Ignored unless innerVoice is true. Owner-observed 2026-07-11: a plan-ready
+    // self-turn answered NO_REPLY and the owner was never told.
+    mustSpeak: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );

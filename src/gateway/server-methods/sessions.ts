@@ -779,6 +779,7 @@ async function handleSessionSend(params: {
           ...((p as { delaySeconds?: number }).delaySeconds !== undefined
             ? { delaySeconds: (p as { delaySeconds: number }).delaySeconds }
             : {}),
+          ...((p as { mustSpeak?: boolean }).mustSpeak === true ? { mustSpeak: true } : {}),
         });
       } catch {
         armed = false;
