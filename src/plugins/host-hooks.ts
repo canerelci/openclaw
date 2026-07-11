@@ -263,6 +263,9 @@ type PluginSessionTurnScheduleCommonParams = {
   name?: string;
   /** Optional cleanup tag. Reserved cron-name delimiters like `:` are rejected. */
   tag?: string;
+  /** When true, the scheduled message is a fully self-authored prompt; skip the `[cron:<id> <name>]`
+   *  prefix in the agent prompt (the job id still appears in logs). */
+  omitPromptHeader?: boolean;
 };
 
 export type PluginSessionTurnScheduleParams =

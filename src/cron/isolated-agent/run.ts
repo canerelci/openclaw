@@ -807,7 +807,10 @@ async function prepareCronRunContext(params: {
 
   const { formattedTime, timeLine } = resolveCronStyleNow(input.cfg, now);
   const message = resolveCronAgentTurnMessage(input);
-  const base = `[cron:${input.job.id} ${input.job.name}] ${message}`.trim();
+  const base =
+    agentPayload?.omitPromptHeader === true
+      ? message.trim()
+      : `[cron:${input.job.id} ${input.job.name}] ${message}`.trim();
   const isExternalHook =
     hookExternalContentSource !== undefined || isExternalHookSession(baseSessionKey);
   const allowUnsafeExternalContent =

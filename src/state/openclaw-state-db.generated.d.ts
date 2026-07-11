@@ -286,6 +286,7 @@ export interface CronJobs {
   payload_light_context: number | null;
   payload_message: string | null;
   payload_model: string | null;
+  payload_omit_prompt_header: number | null;
   payload_thinking: string | null;
   payload_timeout_seconds: number | null;
   payload_tools_allow_json: string | null;

@@ -248,6 +248,8 @@ type CronAgentTurnPayloadFields = {
   lightContext?: boolean;
   /** Optional tool allow-list; when set, only these tools are sent to the model. */
   toolsAllow?: string[];
+  /** When true, skip the `[cron:<id> <name>]` prefix in the agent prompt. */
+  omitPromptHeader?: boolean;
 };
 
 type CronAgentTurnPayload = {

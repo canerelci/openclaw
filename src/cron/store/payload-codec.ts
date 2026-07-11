@@ -72,6 +72,7 @@ export function bindPayloadColumns(
   | "payload_light_context"
   | "payload_message"
   | "payload_model"
+  | "payload_omit_prompt_header"
   | "payload_thinking"
   | "payload_timeout_seconds"
   | "payload_tools_allow_json"
@@ -87,6 +88,7 @@ export function bindPayloadColumns(
       payload_allow_unsafe_external_content: null,
       payload_external_content_source_json: null,
       payload_light_context: null,
+      payload_omit_prompt_header: null,
       payload_tools_allow_json: null,
     };
   }
@@ -102,6 +104,7 @@ export function bindPayloadColumns(
       payload_allow_unsafe_external_content: null,
       payload_external_content_source_json: null,
       payload_light_context: null,
+      payload_omit_prompt_header: null,
       payload_tools_allow_json: null,
     };
   }
@@ -115,6 +118,7 @@ export function bindPayloadColumns(
     payload_allow_unsafe_external_content: booleanToInteger(payload.allowUnsafeExternalContent),
     payload_external_content_source_json: serializeJson(payload.externalContentSource),
     payload_light_context: booleanToInteger(payload.lightContext),
+    payload_omit_prompt_header: booleanToInteger(payload.omitPromptHeader),
     payload_tools_allow_json: serializeJson(payload.toolsAllow),
   };
 }
@@ -141,6 +145,10 @@ export function payloadFromRow(row: CronJobRow): CronPayload | null {
     );
     const lightContext =
       row.payload_light_context != null ? integerToBoolean(row.payload_light_context) : undefined;
+    const omitPromptHeader =
+      row.payload_omit_prompt_header != null
+        ? integerToBoolean(row.payload_omit_prompt_header)
+        : undefined;
     const toolsAllow = row.payload_tools_allow_json
       ? parseJsonArray(row.payload_tools_allow_json)
       : undefined;
@@ -154,6 +162,7 @@ export function payloadFromRow(row: CronJobRow): CronPayload | null {
       ...(allowUnsafeExternalContent != null ? { allowUnsafeExternalContent } : {}),
       ...(externalContentSource ? { externalContentSource } : {}),
       ...(lightContext != null ? { lightContext } : {}),
+      ...(omitPromptHeader != null ? { omitPromptHeader } : {}),
       ...(toolsAllow ? { toolsAllow } : {}),
     };
   }

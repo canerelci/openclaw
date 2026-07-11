@@ -4,7 +4,7 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import type { BootstrapContextMode } from "../../agents/bootstrap-files.js";
 import type { FastModeAutoProgressState } from "../../agents/fast-mode.js";
 import { resolveCliRuntimeExecutionProvider } from "../../agents/model-runtime-aliases.js";
-import { wrapUntrustedPromptDataBlock } from "../../agents/sanitize-for-prompt.js";
+import { wrapPromptDataBlock } from "../../agents/sanitize-for-prompt.js";
 import { normalizeToolName } from "../../agents/tool-policy.js";
 import type { ThinkLevel, VerboseLevel } from "../../auto-reply/thinking.js";
 import type { AgentDefaultsConfig } from "../../config/types.agent-defaults.js";
@@ -150,7 +150,7 @@ function buildCronDeliveryTargetRuntimeContext(params: {
   if (targetData.length > MAX_CRON_DELIVERY_TARGET_CONTEXT_CHARS) {
     return undefined;
   }
-  const targetDataBlock = wrapUntrustedPromptDataBlock({
+  const targetDataBlock = wrapPromptDataBlock({
     label: "Message delivery destination metadata",
     text: targetData,
     maxChars: MAX_CRON_DELIVERY_TARGET_CONTEXT_CHARS,

@@ -87,7 +87,8 @@ function hasAgentTurnOnlyPayloadHint(payload: UnknownRecord): boolean {
     "timeoutSeconds" in payload ||
     "toolsAllow" in payload ||
     typeof payload.lightContext === "boolean" ||
-    typeof payload.allowUnsafeExternalContent === "boolean"
+    typeof payload.allowUnsafeExternalContent === "boolean" ||
+    typeof payload.omitPromptHeader === "boolean"
   );
 }
 
@@ -289,6 +290,7 @@ function coercePayload(payload: UnknownRecord) {
     delete next.timeoutSeconds;
     delete next.lightContext;
     delete next.allowUnsafeExternalContent;
+    delete next.omitPromptHeader;
     delete next.toolsAllow;
     delete next.argv;
     delete next.cwd;
@@ -312,6 +314,7 @@ function coercePayload(payload: UnknownRecord) {
     delete next.thinking;
     delete next.lightContext;
     delete next.allowUnsafeExternalContent;
+    delete next.omitPromptHeader;
     delete next.toolsAllow;
   }
   return next;

@@ -522,6 +522,7 @@ describe("normalizeCronJobCreate", () => {
         thinking: "high",
         timeoutSeconds: 45,
         lightContext: true,
+        omitPromptHeader: true,
         toolsAllow: ["exec"],
         allowUnsafeExternalContent: true,
       },
