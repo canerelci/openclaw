@@ -7,7 +7,18 @@
  * after the SOUL prompt and the Cortex/Mouth stages; kept purely mechanical.
  */
 
-/** Strip a short trailing filler question ("Need anything else?") after real content. */
+// Recognized CONTENT-FREE filler questions — generic customer-service reflexes that add nothing
+// regardless of what came before them. Deliberately a closed list, not "any short trailing
+// question": a bare length/punctuation heuristic also matched real, on-topic questions the
+// assistant asked as part of its answer (owner-observed 2026-07-11 — "Haftalık planı çıkaralım
+// mı, yoksa direkt ilk postları mı hazırlayayım?" was silently deleted after a genuine status
+// update, so the owner never saw the assistant asking which way to proceed. A real question is
+// exactly the proactive behavior we want, never filler).
+const FILLER_QUESTION_RE =
+  /^başka\s+(?:bir\s+şey|bir\s+konuda|yardımcı\s+olabileceğim\s+bir\s+şey)?\s*(?:istedi|iste|var|ister|olsun|yardım)\w*\s*(?:mi|mı)?\??$|^(?:need|want)\s+anything\s+else\??$|^(?:anything|something)\s+else\??$|^(?:how\s+)?(?:can|may)\s+i\s+(?:help|assist)(?:\s+you)?(?:\s+with\s+anything\s+else)?\??$/i;
+
+/** Strip a short trailing filler question ("Need anything else?") after real content — but ONLY
+ *  a recognized content-free reflex, never a real on-topic question the assistant is asking. */
 export function stripTrailingFillerQuestion(text: string): string {
   const match = text.match(/^([\s\S]+[.!?\n])\s*([^.!?\n]+\?)\s*$/);
   if (!match) {
@@ -15,7 +26,7 @@ export function stripTrailingFillerQuestion(text: string): string {
   }
   const body = match[1].trim();
   const trailing = match[2].trim();
-  if (body.length > 20 && trailing.length < 80) {
+  if (body.length >= 10 && FILLER_QUESTION_RE.test(trailing)) {
     return body;
   }
   return text;
