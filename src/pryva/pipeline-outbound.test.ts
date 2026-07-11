@@ -6,10 +6,10 @@ vi.mock("./backend.js", () => ({ pryvaFetch: (...args: unknown[]) => pryvaFetch(
 const { onMessageSending } = await import("./pipeline-outbound.js");
 const { noteToolCall } = await import("./stalling.js");
 
-// >80 chars so the Mouth stage actually runs (needsMouth threshold in pipeline-outbound.ts).
+// Markdown marker so Mouth actually runs (needsMouth is structural only — not length).
 const HONEST =
   "Anladım, logo yerleşimini düzeltmek için markanın logo dosyasını ve görsel kurallarını " +
-  "kontrol etmem lazım — logo dosyasını atabilir misin?";
+  "kontrol etmem lazım — **logo dosyasını** atabilir misin?";
 const PROMISE = "Hemen yenisini hazırlıyorum, birkaç dakika içinde geliyor.";
 
 type FetchCall = { path: string; body: Record<string, unknown>; opts: { flowId?: string } };

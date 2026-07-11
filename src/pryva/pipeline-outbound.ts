@@ -186,11 +186,12 @@ export async function onMessageSending(
     pipeline.log.warn(`cortex skipped (disabled) for outbound to ${to ?? "?"} [${flowId}]`);
   }
 
-  // Mouth polish when the draft needs formatting help.
-  const needsMouth =
-    content.length > 80 ||
-    /[|#*`[\]{}]/.test(content) ||
-    /\b[0-9a-f]{8}-[0-9a-f]{4}\b/i.test(content);
+  // Mouth polish ONLY when the draft needs formatting help — not merely because it is long.
+  // Length alone used to force Mouth on clean prose ("Tamam Caner, anladım…"), and Mouth then
+  // free-rewrote it into a mid-conversation greeting (Sinan 2026-07-11). Greeting policy and
+  // substance belong to the agent + backend, not a formatter. Triggers are structural only:
+  // markdown / tables / code fences / list markup / UUID-shaped tokens.
+  const needsMouth = /[|#*`[\]{}]/.test(content) || /\b[0-9a-f]{8}-[0-9a-f]{4}\b/i.test(content);
   if (!isAck && !pipeline.cfg.pipeline.disableMouth && needsMouth) {
     const result = (await pryvaFetch(
       pipeline.cfg,
