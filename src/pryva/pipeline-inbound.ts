@@ -19,7 +19,6 @@ import type {
   PluginHookMessageContext,
   PluginHookMessageReceivedEvent,
 } from "../plugins/types.js";
-import { fastAckText } from "./ack.js";
 import { pryvaFetch } from "./backend.js";
 import type { PipelineInboundContext } from "./context.js";
 import { generateFlowId, normalizeTrigger, type FlowSource } from "./flow-registry.js";
@@ -314,26 +313,12 @@ export async function onMessageReceived(
   pipeline.ctxStore.set(pipeline.ctxStore.key(conversationId, channel, from), entry);
   pipeline.ctxStore.cleanupStale();
 
-  // Fast-ack (D3): a canned, instant "I'm on it" BEFORE any slow work — never
-  // blocks. Delivered via the channel layer's core sendMessage (deliverFastAck),
-  // never by spawning the CLI. fastAckText returns null for trivial messages
-  // (greetings/acks), so those get no ack. Fires on every channel including
-  // internal (I5); internal delivery becomes real once D4 registers it.
-  const ack = content ? fastAckText(content) : null;
-  if (ack) {
-    logFlowStep(
-      pipeline,
-      { flowId },
-      {
-        step_name: "fast_ack",
-        step_type: "outbound",
-        status: "ok",
-        output_text: ack,
-        metadata: { pryva_ack: true, channel, sender: from },
-      },
-    );
-    void deliverFastAck(pipeline, { to: from, content: ack, channel, sessionKey });
-  }
+  // Fast-ack is now Ear-DRIVEN (owner 2026-07-11): the Ear already analyzes the message and
+  // emits a contextual `ack_text` in the sender's own register ("olur, bir bakayım" /
+  // "tamam, hazırlıyorum"). A deterministic canned pool produced context-blind, robotic acks
+  // (it answered a directive with "Hemen bakıyorum…"). So we no longer send a canned ack here;
+  // the ack is delivered from the Ear-settle block below using earPlan.ack_text. Trade-off the
+  // owner accepted: the ack now lands after Ear (~1-3 s) instead of <1 s, but is always in-context.
 
   // D6 (safe steering): let the backend abort any in-flight NCW work this message invalidates
   // (e.g. "make it tiktok not instagram" while an instagram plan is generating). Fire-and-forget —
@@ -375,6 +360,27 @@ export async function onMessageReceived(
         await runEar(pipeline, entry);
         const intent = typeof entry.earPlan?.intent === "string" ? entry.earPlan.intent : "";
         pipeline.log.debug(`ear intent=${intent} [${flowId}]`);
+
+        // Ear-driven ack (replaces the old canned fast-ack). The Ear sets a short, contextual
+        // ack_text (sender's language + register) for any non-trivial turn, and null for a
+        // short_circuit (trivial greeting/thanks — those need no ack). Deliver it now, before the
+        // agent turn's real reply. Fire-and-forget, best-effort — a courtesy, never load-bearing.
+        const ackText =
+          typeof entry.earPlan?.ack_text === "string" ? entry.earPlan.ack_text.trim() : "";
+        if (ackText && entry.earPlan?.short_circuit !== true) {
+          logFlowStep(
+            pipeline,
+            { flowId },
+            {
+              step_name: "fast_ack",
+              step_type: "outbound",
+              status: "ok",
+              output_text: ackText,
+              metadata: { pryva_ack: true, ear_driven: true, channel, sender: from },
+            },
+          );
+          void deliverFastAck(pipeline, { to: from, content: ackText, channel, sessionKey });
+        }
         // Ear-path inner-voice directive (first-contact greeting that reached the Ear instead of
         // being claimed): schedule the same self-wake. Mutually exclusive with the claim path per
         // inbound. Fail-open — absent/invalid → nothing scheduled.

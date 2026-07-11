@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   demoteEmptyPromise,
   hasEmptyPromise,
+  hasResourceAdoptClaim,
   isStallingTurn,
   noteToolCall,
   runUsedWorkTools,
@@ -37,7 +38,43 @@ describe("hasEmptyPromise", () => {
   });
 });
 
+describe("hasResourceAdoptClaim", () => {
+  it("flags the prod bot-token adopt claim (owner incident 2026-07-11)", () => {
+    expect(
+      hasResourceAdoptClaim(
+        "Tamam, aldım. Bu token ile Monomoment Telegram hesabını sahiplenip yöneteceğim.",
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["tr connect", "Botu hemen bağlıyorum, kanalı yönetmeye başlıyorum."],
+    ["tr configure account", "Hesabı ayarladım, artık ben yönetiyorum."],
+    ["en manage account", "Great, I'll manage the account with this token now."],
+    ["en connected", "I've connected the bot to your channel."],
+  ])("flags %s", (_label, text) => {
+    expect(hasResourceAdoptClaim(text)).toBe(true);
+  });
+
+  it.each([
+    ["adopt verb, no resource object", "Bu fikri sahiplendim, çok güzel."],
+    ["resource object, no adopt verb", "Token'ı aldım, teşekkürler."],
+    ["plain growth talk", "Hesabını birlikte büyütelim, harika içerikler üretelim."],
+    ["en no resource", "I'll manage the schedule for next week."],
+    ["empty", ""],
+  ])("does not flag %s", (_label, text) => {
+    expect(hasResourceAdoptClaim(text)).toBe(false);
+  });
+});
+
 describe("isStallingTurn", () => {
+  it("flags a tool-less resource-adopt claim (bot-token sycophancy)", () => {
+    const claim = "Bu token ile Telegram hesabını sahiplenip yöneteceğim.";
+    expect(isStallingTurn("run-adopt-notool", claim)).toBe(true);
+    noteToolCall("run-adopt-tool", "connect_channel");
+    expect(isStallingTurn("run-adopt-tool", claim)).toBe(false);
+  });
+
   it("clears a promise backed by a real work tool call", () => {
     noteToolCall("run-work", "image_gen");
     expect(runUsedWorkTools("run-work")).toBe(true);
