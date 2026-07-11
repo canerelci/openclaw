@@ -116,6 +116,33 @@ const EN_PROMISE_VERB =
 const EN_IMMEDIACY =
   /\b(?:right\s+away|right\s+now|in\s+a\s+(?:few|couple|minute|moment|sec)\w*|shortly|momentarily|soon|coming\s+(?:right\s+)?up|any\s+minute|just\s+a\s+(?:sec|moment|minute))\b/i;
 
+// A SECOND, immediacy-free class: claiming to have ADOPTED / CONNECTED / configured a resource the
+// owner just handed over (a bot token, an account/handle, credentials, a channel). "bu token ile
+// hesabı yöneteceğim / sahiplendim / bağladım", "I'll manage the account / I've connected it".
+// These aren't "deliverable soon" promises (no immediacy marker), but they ARE a claim of a system
+// action — and the assistant has no tool to connect a channel, so a tool-less turn making this
+// claim is a fabrication (owner incident 2026-07-11: it said it would "manage the account" from a
+// pasted token and did nothing). Kept narrow: an adopt/manage/connect verb NEAR an account/token/
+// channel object, so ordinary talk ("hesabını büyütelim") never trips it.
+const TR_ADOPT_CLAIM =
+  /\b(?:sahiplen|bağla|bağlıyor|yönet|yönetece|kur|kuruyor|entegre|aktifleş|etkinleş|ayarlad|ayarlıyor|tan[ıi]mlad)\w*/i;
+const EN_ADOPT_CLAIM =
+  /\b(?:adopt\w*|connect\w*|link\w*|hook\w*\s+up|manag\w*|configur\w*|set\s+up|integrat\w*|activat\w*)\b/i;
+const TR_RESOURCE_OBJ =
+  /\b(?:token|hesab|hesap|kanal|bot|@\w+|kimlik\s*bilg|şifre|api\s*key|erişim)\w*/i;
+const EN_RESOURCE_OBJ =
+  /\b(?:token|account|channel|bot|@\w+|credential|password|api\s*key|handle|access)\w*/i;
+
+/** A tool-less claim of adopting/connecting a resource the owner supplied (no tool exists for it). */
+export function hasResourceAdoptClaim(content: string): boolean {
+  if (!content) {
+    return false;
+  }
+  const tr = TR_ADOPT_CLAIM.test(content) && TR_RESOURCE_OBJ.test(content);
+  const en = EN_ADOPT_CLAIM.test(content) && EN_RESOURCE_OBJ.test(content);
+  return tr || en;
+}
+
 /**
  * Does this reply promise a deliverable imminently? Requires a promise verb AND an
  * immediacy marker in the SAME message, in one language family, so ordinary sentences
@@ -138,7 +165,11 @@ export function hasEmptyPromise(content: string): boolean {
  * is usually backed by real work happening elsewhere. Absent proof, never accuse.
  */
 export function isStallingTurn(runId: string | undefined, content: string): boolean {
-  return Boolean(runId) && hasEmptyPromise(content) && !runUsedWorkTools(runId);
+  return (
+    Boolean(runId) &&
+    (hasEmptyPromise(content) || hasResourceAdoptClaim(content)) &&
+    !runUsedWorkTools(runId)
+  );
 }
 
 export const STALL_REVISE_INSTRUCTION =
@@ -160,7 +191,10 @@ function isPromiseSentence(sentence: string): boolean {
     TR_PROMISE_VERB.test(sentence) ||
     TR_IMMEDIACY.test(sentence) ||
     EN_PROMISE_VERB.test(sentence) ||
-    EN_IMMEDIACY.test(sentence)
+    EN_IMMEDIACY.test(sentence) ||
+    // A tool-less resource-adopt claim is a lie too — strip the sentence that makes it.
+    (TR_ADOPT_CLAIM.test(sentence) && TR_RESOURCE_OBJ.test(sentence)) ||
+    (EN_ADOPT_CLAIM.test(sentence) && EN_RESOURCE_OBJ.test(sentence))
   );
 }
 
