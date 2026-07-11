@@ -4,6 +4,7 @@ import { resolveDiagnosticModelContentCapturePolicy } from "../../../infra/diagn
 import { DEFAULT_UNDICI_STREAM_TIMEOUT_MS } from "../../../infra/net/undici-global-dispatcher.js";
 import type { DiagnosticEmbeddedRunOwner } from "../../../logging/diagnostic-run-activity.js";
 import { resolveToolCallArgumentsEncoding } from "../../../plugins/provider-model-compat.js";
+import { wrapStreamFnWithGatewayAttribution } from "../../../pryva/gateway-attribution.js";
 import { captureAsyncWorkTracker } from "../../../shared/async-work-scope.js";
 import {
   assertOperatorModelAllowed,
@@ -328,6 +329,16 @@ export function installEmbeddedAttemptStreamGuards(
 
   // Tool-call repair can replace structured arguments from fragmented deltas.
   // Restore provider-masked text afterward so executable args stay canonical.
+  // Pryva gateway attribution — billing-critical. The embedded runner rebuilds streamFn per
+  // attempt, so we layer the X-Pryva-Caller/Agent/Task headers on top for gateway-bound
+  // models (no-op otherwise). This is the real main-agent path (the SDK-level seam is
+  // bypassed here).
+  session.agent.streamFn = wrapStreamFnWithGatewayAttribution(
+    session.agent.streamFn,
+    (attempt.model as { baseUrl?: string }).baseUrl,
+    attempt.sessionId,
+  );
+
   if (providerTextTransforms?.output?.length) {
     session.agent.streamFn = wrapStreamFnTextTransforms({
       streamFn: session.agent.streamFn,

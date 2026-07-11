@@ -65,3 +65,31 @@ export function buildGatewayAttribution(
     "X-Pryva-Task": task,
   };
 }
+
+type StreamOptions = { headers?: Record<string, string> } | undefined;
+type StreamFnLike = (model: unknown, context: unknown, options: StreamOptions) => unknown;
+
+/**
+ * Wrap the embedded-agent stream fn so every gateway-bound provider call carries the three
+ * X-Pryva-* attribution headers. This is the seam for the MAIN agent: the embedded-agent-runner
+ * rebuilds agent.streamFn per attempt (attempt.ts), so attribution has to be layered on top of
+ * that rebuilt fn — the SDK-level streamFn seam is bypassed for the real agent run.
+ *
+ * baseUrl is read off the resolved model; sessionId is the run's session id (for the flow-source
+ * task lookup). Non-gateway models are passed through untouched.
+ */
+export function wrapStreamFnWithGatewayAttribution<F extends StreamFnLike>(
+  streamFn: F,
+  baseUrl: string | undefined | null,
+  sessionId: string | undefined | null,
+): F {
+  const attribution = buildGatewayAttribution(baseUrl, sessionId);
+  if (!attribution) {
+    return streamFn;
+  }
+  return ((model: unknown, context: unknown, options: StreamOptions) =>
+    streamFn(model, context, {
+      ...options,
+      headers: { ...attribution, ...options?.headers },
+    })) as F;
+}
