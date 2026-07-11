@@ -774,6 +774,11 @@ async function handleSessionSend(params: {
           ...((p as { pryvaFlowId?: string }).pryvaFlowId
             ? { parentFlowId: (p as { pryvaFlowId: string }).pryvaFlowId }
             : {}),
+          // Now accepted by the schema (was silently dropped here even when present — the wake
+          // always fired immediately regardless of the backend's requested delay).
+          ...((p as { delaySeconds?: number }).delaySeconds !== undefined
+            ? { delaySeconds: (p as { delaySeconds: number }).delaySeconds }
+            : {}),
         });
       } catch {
         armed = false;

@@ -273,6 +273,12 @@ export const SessionsSendParamsSchema = Type.Object(
     // self-turn scheduler rather than chat.send, so no message_received/Ear fires. Write-scoped (avoids
     // the operator.admin cron RPC). Harmless no-op flag on a gateway without the pryva pipeline.
     innerVoice: Type.Optional(Type.Boolean()),
+    // Delay (seconds) before the innerVoice self-turn fires, when the backend wants a scheduled
+    // wake rather than an immediate one (e.g. a first-contact silence follow-up). Ignored unless
+    // innerVoice is true. Was previously sent by the backend but rejected by this schema
+    // (additionalProperties:false) — every delayed self-wake failed with INVALID_REQUEST, silently
+    // degrading to "never fires" (owner-observed 2026-07-11: an inner-voice wake never delivered).
+    delaySeconds: Type.Optional(Type.Number({ minimum: 0 })),
   },
   { additionalProperties: false },
 );
