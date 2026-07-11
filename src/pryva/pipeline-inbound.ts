@@ -609,6 +609,9 @@ export async function onBeforePromptBuild(
     }
   }
 
+  // [CURRENT TIME] first in this hook's block — final prompt order is controlled
+  // by register.ts priority (15): after flavor identity/[TODAY], before history.
+  // Do not move time below the Ear plan; keep the clock as the first line here.
   const parts: string[] = [currentTimeContext(pipeline.timezone)];
   if (best) {
     const earBlock = buildEarPlanBlock(best);
