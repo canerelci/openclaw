@@ -619,6 +619,8 @@ export const sendHandlers: GatewayRequestHandlers = {
       silent?: boolean;
       parseMode?: "HTML";
       sessionKey?: string;
+      pryvaFlowId?: string;
+      pryvaFlowSource?: string;
       idempotencyKey: string;
     };
     const inflight = resolveGatewayInflightRequest({
@@ -780,6 +782,28 @@ export const sendHandlers: GatewayRequestHandlers = {
           });
         }
         const outboundSessionKey = outboundRoute?.sessionKey ?? providedSessionKey;
+        // Pryva flawless-flow (I1): a caller-supplied pryvaFlowId binds THIS send's session to
+        // that flow BEFORE delivery, so the message_sending/message_sent hooks (which resolve
+        // structurally by sessionKey — see deliver.ts sessionKeyForInternalHooks) attribute the
+        // send correctly instead of surfacing as fl-unbound. This RPC never starts an agent
+        // turn, so there is no before_agent_start to consume a pending attachment — bind
+        // immediately. No-op if the pryva pipeline plugin isn't loaded.
+        if (request.pryvaFlowId && outboundSessionKey) {
+          try {
+            const reg = (globalThis as Record<string, unknown>).__pryvaFlowRegistry as
+              | {
+                  bindFlowToSession?: (sessionKey: string, flowId: string, source: string) => void;
+                }
+              | undefined;
+            reg?.bindFlowToSession?.(
+              outboundSessionKey,
+              request.pryvaFlowId,
+              request.pryvaFlowSource || "system",
+            );
+          } catch {
+            /* flow bind is best-effort; never fail a send on it */
+          }
+        }
         const outboundSession = buildOutboundSessionContext({
           cfg,
           agentId: effectiveAgentId,

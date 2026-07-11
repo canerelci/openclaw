@@ -153,6 +153,14 @@ export const SendParamsSchema = Type.Object(
     parseMode: Type.Optional(Type.Literal("HTML")),
     /** Optional session key for mirroring delivered output back into the transcript. */
     sessionKey: Type.Optional(Type.String()),
+    /** Pryva flawless-flow (I1): flow id this send belongs to, so the outbound pipeline's
+     *  message_sending/message_sent hooks bind it instead of surfacing as fl-unbound. Used by
+     *  backend-driven sends that deliver via this RPC without ever starting an agent turn (e.g.
+     *  a finished background job's owner notification). A no-op when the pryva pipeline plugin
+     *  isn't loaded. */
+    pryvaFlowId: Type.Optional(Type.String()),
+    /** Flow source tag to log if pryvaFlowId is set (defaults to "system"). */
+    pryvaFlowSource: Type.Optional(Type.String()),
     idempotencyKey: NonEmptyString,
   },
   { additionalProperties: false },

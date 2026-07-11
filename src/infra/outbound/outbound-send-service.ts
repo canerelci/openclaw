@@ -87,6 +87,11 @@ async function sendCoreMessage(params: {
   queuePolicy: NonNullable<SendMessageParams["queuePolicy"]>;
   payloads?: SendMessageParams["payloads"];
 }): Promise<MessageSendResult> {
+  // Pryva flawless-flow (I1): a CLI/tool caller may pass --flow-id/--flow-source (surfaced
+  // here as ctx.params.flowId/flowSource) so the outbound pipeline binds this send to the
+  // right flow instead of surfacing as fl-unbound.
+  const pryvaFlowId = readOptionalStringParam(params.ctx.params, "flowId");
+  const pryvaFlowSource = readOptionalStringParam(params.ctx.params, "flowSource");
   return await sendMessage({
     cfg: params.ctx.cfg,
     to: params.to,
@@ -120,7 +125,13 @@ async function sendCoreMessage(params: {
     abortSignal: params.ctx.abortSignal,
     silent: params.ctx.silent,
     mediaAccess: params.ctx.mediaAccess,
+    ...(pryvaFlowId ? { pryvaFlowId, pryvaFlowSource } : {}),
   });
+}
+
+function readOptionalStringParam(params: Record<string, unknown>, key: string): string | undefined {
+  const v = params[key];
+  return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
 async function tryHandleWithPluginAction(params: {

@@ -91,6 +91,15 @@ type MessageSendParams = {
   abortSignal?: AbortSignal;
   silent?: boolean;
   parseMode?: "HTML";
+  /** Pryva flawless-flow (I1): flow id this send belongs to, so the outbound pipeline's
+   *  message_sending/message_sent hooks bind it (direct delivery) or the gateway `send` RPC
+   *  binds it (gateway delivery) instead of surfacing as fl-unbound. Used by backend-driven
+   *  sends that deliver via this entrypoint without ever starting an agent turn (e.g. a
+   *  finished background job's owner notification). A no-op when the pryva pipeline plugin
+   *  isn't loaded. */
+  pryvaFlowId?: string;
+  /** Flow source tag to log if pryvaFlowId is set (defaults to "system"). */
+  pryvaFlowSource?: string;
 };
 
 export type MessageSendResult = {
@@ -364,6 +373,20 @@ export async function sendMessage(params: MessageSendParams): Promise<MessageSen
       requesterSenderUsername: params.requesterSenderUsername,
       requesterSenderE164: params.requesterSenderE164,
     });
+    if (params.pryvaFlowId && outboundSession.key) {
+      try {
+        const reg = (globalThis as Record<string, unknown>).__pryvaFlowRegistry as
+          | { bindFlowToSession?: (sessionKey: string, flowId: string, source: string) => void }
+          | undefined;
+        reg?.bindFlowToSession?.(
+          outboundSession.key,
+          params.pryvaFlowId,
+          params.pryvaFlowSource || "system",
+        );
+      } catch {
+        /* flow bind is best-effort; never fail a send on it */
+      }
+    }
     if (params.queuePolicy === "required") {
       await assertRequiredMessageSendDurability({
         cfg,
@@ -440,6 +463,8 @@ export async function sendMessage(params: MessageSendParams): Promise<MessageSen
       silent: params.silent,
       parseMode: params.parseMode,
       sessionKey: params.mirror?.sessionKey,
+      pryvaFlowId: params.pryvaFlowId,
+      pryvaFlowSource: params.pryvaFlowSource,
       idempotencyKey: await resolveGatewayIdempotencyKey(params.idempotencyKey),
     },
   });

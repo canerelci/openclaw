@@ -35,7 +35,12 @@ export function registerMessageSendCommand(message: Command, helpers: MessageCli
           "--silent",
           "Send message silently without notification (Telegram + Discord)",
           false,
-        ),
+        )
+        .option(
+          "--flow-id <id>",
+          "Pryva flow id this send belongs to (flawless-flow I1) — binds the outbound pipeline's telemetry to this flow instead of surfacing as fl-unbound. No-op if the pryva pipeline plugin isn't loaded.",
+        )
+        .option("--flow-source <source>", "Flow source tag to log if --flow-id is set."),
     )
     .action(async (opts) => {
       await helpers.runMessageAction("send", opts);

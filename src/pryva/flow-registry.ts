@@ -353,6 +353,13 @@ export type PryvaFlowRegistryGlobal = {
     source: FlowSource,
     parentFlowId?: string,
   ): void;
+  /** I1: bind a flow to a session IMMEDIATELY (no agent run involved) — for gateway
+   *  RPC methods like `send` that deliver a message synchronously via the outbound
+   *  pipeline (message_sending/message_sent hooks) without ever starting a turn, so
+   *  there is no before_agent_start to consume a pending attachment. The outbound
+   *  hooks resolve via `registry.resolve(runId, sessionId, sessionKey)`, which reads
+   *  this binding directly. */
+  bindFlowToSession(sessionKey: string, flowId: string, source: FlowSource): void;
   /** D6: tag the next run on this session with `source` (deferred behind parentFlowId); `trigger`
    *  optionally overrides the logged trigger tag. */
   setSourceHintBySession(
@@ -412,6 +419,8 @@ export function publishFlowRegistry(registry: FlowRegistry): PryvaFlowRegistryGl
       registry.bindExternalFlow(runId, flowId, source, parentFlowId),
     attachExternalFlowBySession: (sessionKey, flowId, source, parentFlowId) =>
       registry.attachExternalFlowBySession(sessionKey, flowId, source, parentFlowId),
+    bindFlowToSession: (sessionKey, flowId, source) =>
+      void registry.bindFlow(flowId, source, { sessionKey }),
     setSourceHintBySession: (sessionKey, source, parentFlowId, trigger) =>
       registry.setSourceHintBySession(sessionKey, source, parentFlowId, trigger),
   };
