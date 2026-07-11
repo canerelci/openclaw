@@ -77,10 +77,14 @@ export function registerPryvaPipelineHooks(api: OpenClawPluginApi, cfg: OpenClaw
   // fires per run. (Legacy hook, but it is the single earliest per-run point
   // with the full structural ctx — runId + sessionKey + trigger.)
   api.on("before_agent_start", (event, ctx) => onBeforeAgentStart(pipeline, event, ctx));
-  // Priority 10 so the native time/Ear context is prepended ahead of flavor
-  // extensions' own before_prompt_build injections.
+  // before_prompt_build priority sandwich (higher runs first; prependContext is
+  // concatenated left→right in that order). Flavor identity/brand/TODAY should
+  // sit ABOVE this (prio ≥ 20); conversation history BELOW (prio ≤ 10). That
+  // yields: identity → [TODAY] → [CURRENT TIME] + Ear plan → conversation.
+  // Native registers after external plugins, so equal priority would append us
+  // AFTER history — never share prio 10 with the flavor history hook.
   api.on("before_prompt_build", (event) => onBeforePromptBuild(pipeline, event), {
-    priority: 10,
+    priority: 15,
   });
   api.on("message_sending", (event, ctx) => onMessageSending(pipeline, event, ctx));
   // message_sent is the delivery-confirmation counterpart to message_sending: it
