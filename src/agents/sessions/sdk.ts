@@ -11,6 +11,7 @@ import {
 import { clampThinkingLevel } from "../../llm/model-utils.js";
 import { streamSimple } from "../../llm/stream.js";
 import type { Message, Model } from "../../llm/types.js";
+import { buildGatewayAttribution } from "../../pryva/gateway-attribution.js";
 import { getAgentDir } from "../config.js";
 import {
   Agent,
@@ -418,6 +419,12 @@ export async function createAgentSession(
       }
       const providerRetrySettings = settingsManager.getProviderRetrySettings();
       const attributionHeaders = getAttributionHeaders(modelResult, settingsManager);
+      // Pryva gateway attribution — billing-critical, always on for gateway-bound calls so the
+      // gateway ledger can attribute this call's spend (caller=ocw / agent=main / task=flow source).
+      const pryvaHeaders = buildGatewayAttribution(
+        (modelResult as { baseUrl?: string }).baseUrl,
+        sessionManager.getSessionId(),
+      );
       return streamSimple(modelResult, context, {
         ...optionsLocal,
         apiKey: auth.apiKey,
@@ -425,8 +432,8 @@ export async function createAgentSession(
         maxRetries: optionsLocal?.maxRetries ?? providerRetrySettings.maxRetries,
         maxRetryDelayMs: optionsLocal?.maxRetryDelayMs ?? providerRetrySettings.maxRetryDelayMs,
         headers:
-          attributionHeaders || auth.headers || optionsLocal?.headers
-            ? { ...attributionHeaders, ...auth.headers, ...optionsLocal?.headers }
+          pryvaHeaders || attributionHeaders || auth.headers || optionsLocal?.headers
+            ? { ...pryvaHeaders, ...attributionHeaders, ...auth.headers, ...optionsLocal?.headers }
             : undefined,
       });
     },
