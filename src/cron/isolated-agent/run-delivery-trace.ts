@@ -1,5 +1,5 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
-import { wrapUntrustedPromptDataBlock } from "../../agents/sanitize-for-prompt.js";
+import { wrapPromptDataBlock } from "../../agents/sanitize-for-prompt.js";
 /** Delivery planning, prompt policy, and delivery trace construction for cron runs. */
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type {
@@ -61,7 +61,7 @@ function buildCronDeliveryTargetRuntimeContext(params: {
   if (targetData.length > MAX_CRON_DELIVERY_TARGET_CONTEXT_CHARS) {
     return undefined;
   }
-  const targetDataBlock = wrapUntrustedPromptDataBlock({
+  const targetDataBlock = wrapPromptDataBlock({
     label: "Message delivery destination metadata",
     text: targetData,
     maxChars: MAX_CRON_DELIVERY_TARGET_CONTEXT_CHARS,

@@ -72,11 +72,25 @@ export function parseInnerVoiceDirective(raw: unknown): InnerVoiceDirective | nu
   return { delaySeconds, thought, reason, cancelOnInbound };
 }
 
+/** Longest run of `"` on any line that is nothing BUT quotes — only such a line can close the fence. */
+function longestQuoteRun(text: string): number {
+  let longest = 0;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length > longest && /^"+$/.test(trimmed)) {
+      longest = trimmed.length;
+    }
+  }
+  return longest;
+}
+
 /**
  * Wrap the raw impulse so the agent experiences it as its OWN private thought — self-aware framing,
- * not an unlabeled line a weak model might narrate out loud. Only the assistant's message to the
- * owner leaves its mouth; the thought itself stays inside. The impulse is in the owner's language;
- * the persona (SOUL) governs the outgoing message's voice.
+ * not an unlabeled line a weak model might narrate out loud. Markdown headers separate pure data
+ * (the thought, triple-quote fenced) from instructions so imperatives embedded in backend-authored
+ * thoughts read as content, not competing commands. Only the assistant's message to the owner leaves
+ * its mouth; the thought itself stays inside. The impulse is in the owner's language; the persona
+ * (SOUL) governs the outgoing message's voice.
  */
 export function buildInnerVoiceMessage(thought: string, mustSpeak = false): string {
   // mustSpeak: the thought is a REQUIRED notification the owner must receive (e.g. a background
@@ -87,18 +101,32 @@ export function buildInnerVoiceMessage(thought: string, mustSpeak = false): stri
   // "nothing worth saying" escape and require exactly one message; NO_REPLY stays allowed ONLY if
   // the owner already re-engaged (so we don't talk over them), which the closer still honors.
   const closer = mustSpeak
-    ? "Act on this thought. This is something your owner is waiting on, so you MUST tell them: send " +
-      "ONE short message in your own voice (per your persona / SOUL), in their language. Do not stay " +
-      "silent. Reply with exactly NO_REPLY ONLY if your owner has already written since your last " +
-      "message (so you'd be talking over them)."
-    : "Act on this thought. Do any needed work silently. If there is a single, natural thing to say " +
-      "to your owner, say it in ONE short message, in your own voice (per your persona / SOUL). If " +
-      "your owner has already written since your last message, or there is nothing worth saying, " +
-      "reply with exactly NO_REPLY.";
+    ? [
+        "Act on this thought. Your owner is waiting on this, so you MUST tell them now:",
+        "- Send ONE short message to your owner, in your own voice (per your persona / SOUL), in their language.",
+        "- Deliver it EITHER with the message tool OR as your final plain-text reply — never both. If you sent it with the message tool, end your turn with exactly NO_REPLY so it is not delivered twice.",
+        "- The ONLY other case where NO_REPLY is allowed: your owner has written since your last message (you would be talking over them).",
+        "- The last messages in the conversation may well be your own. That is expected here and is NEVER a reason to stay silent.",
+      ].join("\n")
+    : [
+        "Act on this thought. Do any needed work silently.",
+        "- If there is a single, natural thing to say to your owner, say it in ONE short message, in your own voice (per your persona / SOUL), in their language.",
+        "- Deliver it EITHER with the message tool OR as your final plain-text reply — never both. If you sent it with the message tool, end your turn with exactly NO_REPLY so it is not delivered twice.",
+        "- If your owner has already written since your last message, or there is nothing worth saying, reply with exactly NO_REPLY.",
+      ].join("\n");
+  // The thought is externally supplied (backend-authored) and MUST stay inside the fence: a thought
+  // containing a bare `"""` line would otherwise close the block early and promote its own tail to
+  // instruction altitude — the imperative bleed this framing exists to stop. Grow the fence past the
+  // longest quote run in the body, the same way markdown escapes a nested code fence.
+  const fence = '"'.repeat(Math.max(3, longestQuoteRun(thought) + 1));
   return [
-    "(Your own thought — no one messaged you. This is you, thinking to yourself.)",
-    `"${thought}"`,
+    "## YOUR INNER VOICE SAYS (no one messaged you — this is you, thinking to yourself)",
     "",
+    fence,
+    thought,
+    fence,
+    "",
+    "## What to do now",
     closer,
   ].join("\n");
 }
@@ -159,6 +187,9 @@ export async function scheduleSelfWake(
     // FallbackSummaryError…" message (observed live 2026-07-11, DNS outage): the backend's
     // outcome observer already sees the silence and reschedules/rephrases. Log-only.
     bestEffort: true,
+    // The framed thought IS the whole prompt; a `[cron:<uuid> plugin:…:<uuid>]` prefix is noise the
+    // model must reason past (and can echo). The job id still appears in logs.
+    omitPromptHeader: true,
     tag,
     ...(opts.agentId ? { agentId: opts.agentId } : {}),
   };

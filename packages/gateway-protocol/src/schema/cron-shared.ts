@@ -34,6 +34,9 @@ export function cronAgentTurnPayloadSchema<
     timeoutSeconds: Type.Optional(params.timeoutSeconds),
     allowUnsafeExternalContent: Type.Optional(Type.Boolean()),
     lightContext: Type.Optional(Type.Boolean()),
+    // Pryva: when true the scheduled message is a fully self-authored prompt; skip the
+    // `[cron:<id> <name>]` prefix in the agent prompt (the job id still appears in logs).
+    omitPromptHeader: Type.Optional(Type.Boolean()),
     toolsAllow: Type.Optional(params.toolsAllow),
     // Server-managed marker for auto-stamped defaults; persisted so CLI cron
     // runs can drop only the cap that was never user-explicit.

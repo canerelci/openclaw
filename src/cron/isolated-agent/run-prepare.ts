@@ -492,7 +492,12 @@ export async function prepareCronRunContext(params: {
         ? `${currentConversationContext}\n\n${turnMessage}`
         : turnMessage;
       const sourcePromptPrefix = `[cron:${input.job.id} ${input.job.name}]`;
-      const base = `${sourcePromptPrefix} ${message}`.trim();
+      // Pryva: a plugin-scheduled self-turn authors the whole prompt; the job header is noise
+      // the model must reason past (and can echo back). The job id still appears in logs.
+      const base =
+        agentPayload?.omitPromptHeader === true
+          ? message.trim()
+          : `${sourcePromptPrefix} ${message}`.trim();
       const isExternalHook =
         hookExternalContentSource !== undefined || isExternalHookSession(baseSessionKey);
       const allowUnsafeExternalContent =

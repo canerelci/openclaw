@@ -56,7 +56,8 @@ function hasAgentTurnOnlyPayloadHint(payload: UnknownRecord): boolean {
     "thinking" in payload ||
     "timeoutSeconds" in payload ||
     typeof payload.lightContext === "boolean" ||
-    typeof payload.allowUnsafeExternalContent === "boolean"
+    typeof payload.allowUnsafeExternalContent === "boolean" ||
+    typeof payload.omitPromptHeader === "boolean"
   );
 }
 
@@ -175,6 +176,7 @@ export function normalizeCronPayload(payload: UnknownRecord): UnknownRecord {
       delete next.thinking;
       delete next.lightContext;
       delete next.allowUnsafeExternalContent;
+      delete next.omitPromptHeader;
     }
     if (kind !== "command") {
       delete next.argv;

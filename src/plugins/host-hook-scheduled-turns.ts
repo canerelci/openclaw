@@ -286,6 +286,7 @@ export async function schedulePluginSessionTurn(params: {
   const cronPayload: CronJobCreate["payload"] = {
     kind: "agentTurn",
     message,
+    ...(params.schedule.omitPromptHeader === true ? { omitPromptHeader: true } : {}),
   };
   let result: Awaited<ReturnType<CronServiceContract["add"]>>;
   try {
