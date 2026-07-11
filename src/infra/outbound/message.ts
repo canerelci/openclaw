@@ -373,7 +373,7 @@ export async function sendMessage(params: MessageSendParams): Promise<MessageSen
       requesterSenderUsername: params.requesterSenderUsername,
       requesterSenderE164: params.requesterSenderE164,
     });
-    if (params.pryvaFlowId && outboundSession.key) {
+    if (params.pryvaFlowId && outboundSession?.key) {
       try {
         const reg = (globalThis as Record<string, unknown>).__pryvaFlowRegistry as
           | { bindFlowToSession?: (sessionKey: string, flowId: string, source: string) => void }
