@@ -82,6 +82,11 @@ type SendActionParams = {
   threadId?: string | number;
 };
 
+function readOptionalStringParam(params: Record<string, unknown>, key: string): string | undefined {
+  const v = params[key];
+  return typeof v === "string" && v.trim() ? v.trim() : undefined;
+}
+
 async function tryHandleWithPluginAction(params: {
   ctx: OutboundSendContext;
   action: "send" | "poll";
@@ -265,6 +270,11 @@ export async function executeSendAction(params: SendActionParams): Promise<{
       ? materializeMessagePresentationFallback({ payload: corePayload, text: params.message })
       : params.message;
   const deliveredPayloads: NormalizedOutboundPayload[] = [];
+  // Pryva flawless-flow (I1): a CLI/tool caller may pass --flow-id/--flow-source (surfaced
+  // here as ctx.params.flowId/flowSource) so the outbound pipeline binds this send to the
+  // right flow instead of surfacing as fl-unbound.
+  const pryvaFlowId = readOptionalStringParam(params.ctx.params, "flowId");
+  const pryvaFlowSource = readOptionalStringParam(params.ctx.params, "flowSource");
   const result = await sendMessage({
     cfg: params.ctx.cfg,
     to: params.to,
@@ -324,6 +334,7 @@ export async function executeSendAction(params: SendActionParams): Promise<{
     assertDirectAdapterHandoff: params.ctx.input.assertDirectAdapterHandoff,
     skipQueue: params.ctx.input.skipQueue,
     onDeliveredPayload: (payload) => deliveredPayloads.push(payload),
+    ...(pryvaFlowId ? { pryvaFlowId, pryvaFlowSource } : {}),
   });
   const deliveredText =
     result.deliveryStatus === "sent" &&
