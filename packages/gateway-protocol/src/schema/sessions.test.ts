@@ -41,6 +41,17 @@ describe("SessionsSendParamsSchema — Pryva innerVoice self-wake", () => {
     ).toBe(false);
   });
 
+  it("accepts innerVoice with mustSpeak (a required owner notification like a plan-ready)", () => {
+    expect(
+      Value.Check(SessionsSendParamsSchema, {
+        key: "agent:main:main",
+        message: "your weekly plan is ready — tell the owner",
+        innerVoice: true,
+        mustSpeak: true,
+      }),
+    ).toBe(true);
+  });
+
   it("still rejects a truly unknown property", () => {
     expect(
       Value.Check(SessionsSendParamsSchema, {

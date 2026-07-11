@@ -78,15 +78,28 @@ export function parseInnerVoiceDirective(raw: unknown): InnerVoiceDirective | nu
  * owner leaves its mouth; the thought itself stays inside. The impulse is in the owner's language;
  * the persona (SOUL) governs the outgoing message's voice.
  */
-export function buildInnerVoiceMessage(thought: string): string {
+export function buildInnerVoiceMessage(thought: string, mustSpeak = false): string {
+  // mustSpeak: the thought is a REQUIRED notification the owner must receive (e.g. a background
+  // job the owner is waiting on just finished — a weekly plan ready for approval). The default
+  // NO_REPLY escape ("nothing worth saying → NO_REPLY") wrongly let the model swallow these:
+  // the plan was ready but the owner was never told (owner-observed 2026-07-11, flow
+  // fl-6e08c071a63b — a "message the owner" thought answered NO_REPLY). For mustSpeak we drop the
+  // "nothing worth saying" escape and require exactly one message; NO_REPLY stays allowed ONLY if
+  // the owner already re-engaged (so we don't talk over them), which the closer still honors.
+  const closer = mustSpeak
+    ? "Act on this thought. This is something your owner is waiting on, so you MUST tell them: send " +
+      "ONE short message in your own voice (per your persona / SOUL), in their language. Do not stay " +
+      "silent. Reply with exactly NO_REPLY ONLY if your owner has already written since your last " +
+      "message (so you'd be talking over them)."
+    : "Act on this thought. Do any needed work silently. If there is a single, natural thing to say " +
+      "to your owner, say it in ONE short message, in your own voice (per your persona / SOUL). If " +
+      "your owner has already written since your last message, or there is nothing worth saying, " +
+      "reply with exactly NO_REPLY.";
   return [
     "(Your own thought — no one messaged you. This is you, thinking to yourself.)",
     `"${thought}"`,
     "",
-    "Act on this thought. Do any needed work silently. If there is a single, natural thing to say " +
-      "to your owner, say it in ONE short message, in your own voice (per your persona / SOUL). If " +
-      "your owner has already written since your last message, or there is nothing worth saying, " +
-      "reply with exactly NO_REPLY.",
+    closer,
   ].join("\n");
 }
 
@@ -120,6 +133,9 @@ export async function scheduleSelfWake(
     cancelOnInbound?: boolean;
     channel?: string;
     agentId?: string;
+    /** The thought is a required owner notification — drop the "nothing worth saying → NO_REPLY"
+     *  escape so a finished background job (e.g. a plan ready for approval) is always delivered. */
+    mustSpeak?: boolean;
   },
 ): Promise<boolean> {
   const { sessionKey, thought, source, reason, tag, parentFlowId } = opts;
@@ -132,7 +148,7 @@ export async function scheduleSelfWake(
 
   const delaySeconds = opts.delaySeconds ?? DEFAULT_DELAY_SECONDS;
   const delayMs = Math.max(MIN_DELAY_MS, Math.round(delaySeconds * 1000));
-  const message = buildInnerVoiceMessage(thought);
+  const message = buildInnerVoiceMessage(thought, opts.mustSpeak === true);
   const params: PluginSessionTurnScheduleParams = {
     sessionKey,
     message,
@@ -317,6 +333,8 @@ export type PryvaSelfTurnRequest = {
   /** Fire delay; defaults to 0 (→ the 1s cron floor) so a due todo fires promptly. */
   delaySeconds?: number;
   channel?: string;
+  /** Required owner notification — drops the NO_REPLY escape (a finished job the owner awaits). */
+  mustSpeak?: boolean;
 };
 export type PryvaSelfTurnFn = (req: PryvaSelfTurnRequest) => Promise<boolean>;
 
@@ -414,6 +432,7 @@ export function publishSelfTurn(pipeline: PryvaPipeline): void {
           ? { parentFlowId: req.parentFlowId }
           : {}),
       ...(req.channel ? { channel: req.channel } : {}),
+      ...(req.mustSpeak === true ? { mustSpeak: true } : {}),
     });
   };
   try {

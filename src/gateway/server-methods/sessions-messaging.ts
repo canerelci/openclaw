@@ -254,6 +254,7 @@ async function handleSessionSend(
           reason?: string;
           parentFlowId?: string;
           delaySeconds?: number;
+          mustSpeak?: boolean;
         }) => Promise<boolean>)
       | undefined;
     const rawThought = (p as { message?: unknown }).message;
@@ -275,6 +276,7 @@ async function handleSessionSend(
           ...((p as { delaySeconds?: number }).delaySeconds !== undefined
             ? { delaySeconds: (p as { delaySeconds: number }).delaySeconds }
             : {}),
+          ...((p as { mustSpeak?: boolean }).mustSpeak === true ? { mustSpeak: true } : {}),
         });
       } catch {
         armed = false;
