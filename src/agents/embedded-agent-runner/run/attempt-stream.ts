@@ -4,7 +4,7 @@ import { resolveDiagnosticModelContentCapturePolicy } from "../../../infra/diagn
 import { DEFAULT_UNDICI_STREAM_TIMEOUT_MS } from "../../../infra/net/undici-global-dispatcher.js";
 import type { DiagnosticEmbeddedRunOwner } from "../../../logging/diagnostic-run-activity.js";
 import { resolveToolCallArgumentsEncoding } from "../../../plugins/provider-model-compat.js";
-import { wrapStreamFnWithGatewayAttribution } from "../../../pryva/gateway-attribution.js";
+import { buildGatewayAttribution } from "../../../pryva/gateway-attribution.js";
 import { captureAsyncWorkTracker } from "../../../shared/async-work-scope.js";
 import {
   assertOperatorModelAllowed,
@@ -332,12 +332,19 @@ export function installEmbeddedAttemptStreamGuards(
   // Pryva gateway attribution — billing-critical. The embedded runner rebuilds streamFn per
   // attempt, so we layer the X-Pryva-Caller/Agent/Task headers on top for gateway-bound
   // models (no-op otherwise). This is the real main-agent path (the SDK-level seam is
-  // bypassed here).
-  session.agent.streamFn = wrapStreamFnWithGatewayAttribution(
-    session.agent.streamFn,
+  // bypassed here). Inlined to preserve the exact StreamFn type.
+  const pryvaAttribution = buildGatewayAttribution(
     (attempt.model as { baseUrl?: string }).baseUrl,
     attempt.sessionId,
   );
+  if (pryvaAttribution) {
+    const innerStreamFn = session.agent.streamFn;
+    session.agent.streamFn = (model, context, options) =>
+      innerStreamFn(model, context, {
+        ...options,
+        headers: { ...pryvaAttribution, ...options?.headers },
+      });
+  }
 
   if (providerTextTransforms?.output?.length) {
     session.agent.streamFn = wrapStreamFnTextTransforms({
