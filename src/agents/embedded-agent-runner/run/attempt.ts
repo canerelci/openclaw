@@ -70,7 +70,7 @@ import {
   transformProviderSystemPrompt,
 } from "../../../plugins/provider-runtime.js";
 import { getPluginToolMeta } from "../../../plugins/tools.js";
-import { wrapStreamFnWithGatewayAttribution } from "../../../pryva/gateway-attribution.js";
+import { buildGatewayAttribution } from "../../../pryva/gateway-attribution.js";
 import { isSubagentSessionKey } from "../../../routing/session-key.js";
 import { annotateInterSessionPromptText } from "../../../sessions/input-provenance.js";
 import { isTranscriptOnlyOpenClawAssistantMessage } from "../../../shared/transcript-only-openclaw-assistant.js";
@@ -2868,12 +2868,19 @@ export async function runEmbeddedAttempt(
       // Pryva gateway attribution — billing-critical. The embedded runner rebuilt streamFn
       // above, so we layer the X-Pryva-Caller/Agent/Task headers on top for gateway-bound
       // models (no-op otherwise). This is the real main-agent path (the SDK-level seam is
-      // bypassed here).
-      activeSession.agent.streamFn = wrapStreamFnWithGatewayAttribution(
-        activeSession.agent.streamFn,
+      // bypassed here). Inlined to preserve the exact StreamFn type.
+      const pryvaAttribution = buildGatewayAttribution(
         (params.model as { baseUrl?: string }).baseUrl,
         params.sessionId,
       );
+      if (pryvaAttribution) {
+        const innerStreamFn = activeSession.agent.streamFn;
+        activeSession.agent.streamFn = (model, context, options) =>
+          innerStreamFn(model, context, {
+            ...options,
+            headers: { ...pryvaAttribution, ...options?.headers },
+          });
+      }
       const providerTextTransforms = resolveProviderTextTransforms({
         provider: params.provider,
         config: params.config,
