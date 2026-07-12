@@ -336,6 +336,7 @@ export function installEmbeddedAttemptStreamGuards(
   const pryvaAttribution = buildGatewayAttribution(
     (attempt.model as { baseUrl?: string }).baseUrl,
     attempt.sessionId,
+    attempt.runId,
   );
   if (pryvaAttribution) {
     const innerStreamFn = session.agent.streamFn;

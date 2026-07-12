@@ -21,6 +21,7 @@ export function isGatewayBaseUrl(baseUrl: string | undefined | null): boolean {
 
 type FlowLookup = {
   getFlowForSessionId(sessionId: string): { flowId: string; source: string } | null;
+  getFlowForRun?(runId: string): { flowId: string; source: string } | null;
 };
 
 function readFlowRegistry(): FlowLookup | undefined {
@@ -38,25 +39,30 @@ function readFlowRegistry(): FlowLookup | undefined {
  *
  * caller is always "ocw" and agent is "main": a tenant's OpenClaw runs exactly one main agent, so
  * this is the correct constant (NCW specialists carry their own per-agent attribution). task is the
- * current flow's source (owner_message / heartbeat / cron / …), looked up by session id.
+ * current flow's source (owner_message / heartbeat / cron / …). Non-message-triggered runs
+ * (heartbeat/cron) bind their flow via before_agent_start keyed on runId, which can resolve BEFORE
+ * the session-id binding is visible here — so try runId first, then sessionId as a fallback.
  */
 export function buildGatewayAttribution(
   baseUrl: string | undefined | null,
   sessionId: string | undefined | null,
+  runId?: string | undefined | null,
 ): Record<string, string> | undefined {
   if (!isGatewayBaseUrl(baseUrl)) {
     return undefined;
   }
   let task = "unknown";
-  if (sessionId) {
-    try {
-      const flow = readFlowRegistry()?.getFlowForSessionId(sessionId);
-      if (flow?.source) {
-        task = flow.source;
-      }
-    } catch {
-      // fail-open: attribution must never break a real LLM call
+  try {
+    const registry = readFlowRegistry();
+    const flow =
+      (runId && registry?.getFlowForRun?.(runId)) ||
+      (sessionId && registry?.getFlowForSessionId(sessionId)) ||
+      null;
+    if (flow?.source) {
+      task = flow.source;
     }
+  } catch {
+    // fail-open: attribution must never break a real LLM call
   }
 
   return {
