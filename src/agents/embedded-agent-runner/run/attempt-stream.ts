@@ -4,7 +4,7 @@ import { resolveDiagnosticModelContentCapturePolicy } from "../../../infra/diagn
 import { DEFAULT_UNDICI_STREAM_TIMEOUT_MS } from "../../../infra/net/undici-global-dispatcher.js";
 import type { DiagnosticEmbeddedRunOwner } from "../../../logging/diagnostic-run-activity.js";
 import { resolveToolCallArgumentsEncoding } from "../../../plugins/provider-model-compat.js";
-import { buildGatewayAttribution } from "../../../pryva/gateway-attribution.js";
+import { buildGatewayAttribution, isGatewayBaseUrl } from "../../../pryva/gateway-attribution.js";
 import { captureAsyncWorkTracker } from "../../../shared/async-work-scope.js";
 import {
   assertOperatorModelAllowed,
@@ -327,26 +327,33 @@ export function installEmbeddedAttemptStreamGuards(
     installStreamWrapper(createHtmlEntityToolCallArgumentDecodingWrapper);
   }
 
-  // Tool-call repair can replace structured arguments from fragmented deltas.
-  // Restore provider-masked text afterward so executable args stay canonical.
   // Pryva gateway attribution — billing-critical. The embedded runner rebuilds streamFn per
   // attempt, so we layer the X-Pryva-Caller/Agent/Task headers on top for gateway-bound
   // models (no-op otherwise). This is the real main-agent path (the SDK-level seam is
   // bypassed here). Inlined to preserve the exact StreamFn type.
-  const pryvaAttribution = buildGatewayAttribution(
-    (attempt.model as { baseUrl?: string }).baseUrl,
-    attempt.sessionId,
-    attempt.runId,
-  );
-  if (pryvaAttribution) {
+  //
+  // Resolved PER CALL, not once at streamFn-build time: this wrapper runs before
+  // before_agent_start's prompt-build phase has bound the flow for non-message-triggered
+  // runs (heartbeat/cron), so a build-time snapshot could freeze task_type=unknown even
+  // though the flow binds moments later. Recomputing at call time reads whatever is in the
+  // FlowRegistry at actual LLM-call time, by which point before_agent_start has always run.
+  if (isGatewayBaseUrl((attempt.model as { baseUrl?: string }).baseUrl)) {
     const innerStreamFn = session.agent.streamFn;
-    session.agent.streamFn = (model, context, options) =>
-      innerStreamFn(model, context, {
+    session.agent.streamFn = (model, context, options) => {
+      const pryvaAttribution = buildGatewayAttribution(
+        (attempt.model as { baseUrl?: string }).baseUrl,
+        attempt.sessionId,
+        attempt.runId,
+      );
+      return innerStreamFn(model, context, {
         ...options,
         headers: { ...pryvaAttribution, ...options?.headers },
       });
+    };
   }
 
+  // Tool-call repair can replace structured arguments from fragmented deltas.
+  // Restore provider-masked text afterward so executable args stay canonical.
   if (providerTextTransforms?.output?.length) {
     session.agent.streamFn = wrapStreamFnTextTransforms({
       streamFn: session.agent.streamFn,
