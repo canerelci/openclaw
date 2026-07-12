@@ -2872,6 +2872,7 @@ export async function runEmbeddedAttempt(
       const pryvaAttribution = buildGatewayAttribution(
         (params.model as { baseUrl?: string }).baseUrl,
         params.sessionId,
+        params.runId,
       );
       if (pryvaAttribution) {
         const innerStreamFn = activeSession.agent.streamFn;
