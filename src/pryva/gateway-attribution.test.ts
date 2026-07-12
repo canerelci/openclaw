@@ -39,7 +39,7 @@ describe("buildGatewayAttribution", () => {
     ).toBeUndefined();
   });
 
-  it("resolves task from the flow bound to runId, preferring it over sessionId", () => {
+  it("resolves task + flow id from the flow bound to runId, preferring it over sessionId", () => {
     publishFakeRegistry({
       getFlowForSessionId: () => ({ flowId: "fl-stale", source: "owner_message" }),
       getFlowForRun: (runId) =>
@@ -50,6 +50,7 @@ describe("buildGatewayAttribution", () => {
       "X-Pryva-Caller": "ocw",
       "X-Pryva-Agent": "main",
       "X-Pryva-Task": "heartbeat",
+      "X-Pryva-Flow-Id": "fl-heartbeat",
     });
   });
 
@@ -61,9 +62,10 @@ describe("buildGatewayAttribution", () => {
     });
     const headers = buildGatewayAttribution(gatewayUrl, "sess-1", "run-1");
     expect(headers?.["X-Pryva-Task"]).toBe("cron");
+    expect(headers?.["X-Pryva-Flow-Id"]).toBe("fl-session");
   });
 
-  it("degrades to unknown (never drops the header) when nothing resolves", () => {
+  it("degrades to unknown (never drops the header) when nothing resolves, and omits flow id", () => {
     publishFakeRegistry({
       getFlowForSessionId: () => null,
       getFlowForRun: () => null,
@@ -74,6 +76,7 @@ describe("buildGatewayAttribution", () => {
       "X-Pryva-Agent": "main",
       "X-Pryva-Task": "unknown",
     });
+    expect(headers).not.toHaveProperty("X-Pryva-Flow-Id");
   });
 
   it("degrades to unknown fail-open when the registry is not published", () => {
@@ -94,11 +97,13 @@ describe("buildGatewayAttribution", () => {
 
     const early = buildGatewayAttribution(gatewayUrl, "sess-1", "run-1");
     expect(early?.["X-Pryva-Task"]).toBe("unknown");
+    expect(early).not.toHaveProperty("X-Pryva-Flow-Id");
 
     runs.set("run-1", { flowId: "fl-heartbeat", source: "heartbeat" });
 
     const late = buildGatewayAttribution(gatewayUrl, "sess-1", "run-1");
     expect(late?.["X-Pryva-Task"]).toBe("heartbeat");
+    expect(late?.["X-Pryva-Flow-Id"]).toBe("fl-heartbeat");
   });
 
   it("fails open (never throws) when the registry lookup itself throws", () => {

@@ -4,11 +4,12 @@
  * When a tenant routes its LLM calls through the Pryva gateway (the provider baseUrl points at
  * `.../llm/<provider>/...` and the apiKey is an instance token), the gateway records every call
  * but needs to know WHO made it — so its firsthand ledger can attribute spend per source/agent.
- * We attach three headers to every outbound provider request that targets the gateway:
+ * We attach headers to every outbound provider request that targets the gateway:
  *
- *   X-Pryva-Caller = "ocw"                (constant — this is the main OpenClaw agent)
- *   X-Pryva-Agent  = <agent id>           (e.g. "main"; derived from the session key)
- *   X-Pryva-Task   = <flow source>        (owner_message / heartbeat / cron / …; from the flow)
+ *   X-Pryva-Caller  = "ocw"                (constant — this is the main OpenClaw agent)
+ *   X-Pryva-Agent   = <agent id>           (e.g. "main"; derived from the session key)
+ *   X-Pryva-Task    = <flow source>        (owner_message / heartbeat / cron / …; from the flow)
+ *   X-Pryva-Flow-Id = <flow id>            (fl-…; omitted when the flow could not be resolved)
  *
  * These are additive and only emitted for gateway-bound requests, so non-gateway providers are
  * untouched. Unlike install-telemetry attribution, this is NOT gated on a telemetry setting —
@@ -52,6 +53,7 @@ export function buildGatewayAttribution(
     return undefined;
   }
   let task = "unknown";
+  let flowId: string | undefined;
   try {
     const registry = readFlowRegistry();
     const flow =
@@ -61,6 +63,9 @@ export function buildGatewayAttribution(
     if (flow?.source) {
       task = flow.source;
     }
+    if (flow?.flowId) {
+      flowId = flow.flowId;
+    }
   } catch {
     // fail-open: attribution must never break a real LLM call
   }
@@ -69,5 +74,6 @@ export function buildGatewayAttribution(
     "X-Pryva-Caller": "ocw",
     "X-Pryva-Agent": "main",
     "X-Pryva-Task": task,
+    ...(flowId ? { "X-Pryva-Flow-Id": flowId } : {}),
   };
 }
