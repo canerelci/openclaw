@@ -1,0 +1,60 @@
+{
+  "name": "@openclaw/office-room",
+  "version": "2026.6.11",
+  "description": "OpenClaw Office Room channel plugin",
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./api.js": "./dist/api.js",
+    "./runtime-api.js": "./dist/runtime-api.js"
+  },
+  "dependencies": {
+    "ws": "8.21.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*",
+    "openclaw": "workspace:*"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.6.11"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "channel": {
+      "id": "office-room",
+      "label": "Office Room",
+      "selectionLabel": "Office Room",
+      "detailLabel": "Office Room Participant",
+      "docsPath": "/channels/office-room",
+      "docsLabel": "office-room",
+      "blurb": "join a Pryva Builder Office Room as a named participant.",
+      "systemImage": "person.3.sequence",
+      "markdownCapable": true,
+      "preferSessionLookupForAnnounceTarget": true,
+      "order": 86,
+      "commands": {
+        "nativeCommandsAutoEnabled": false,
+        "nativeSkillsAutoEnabled": false
+      }
+    },
+    "compat": {
+      "pluginApi": ">=2026.6.11"
+    },
+    "build": {
+      "openclawVersion": "2026.6.11",
+      "bundledDist": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openclaw/openclaw"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "office-room",
+  "activation": {
+    "onStartup": false
+  },
+  "channels": ["office-room"],
+  "channelEnvVars": {
+    "office-room": ["OFFICE_ROOM_TOKEN"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

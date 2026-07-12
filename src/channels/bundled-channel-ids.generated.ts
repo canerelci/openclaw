@@ -83,6 +83,11 @@ export const GENERATED_BUNDLED_CHANNEL_IDS: readonly BundledChannelIdMetadata[] 
     label: "Nostr",
   },
   {
+    channelId: "office-room",
+    order: 86,
+    label: "Office Room",
+  },
+  {
     channelId: "qa-channel",
     order: 999,
     configurable: false,
