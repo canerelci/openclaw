@@ -20,15 +20,32 @@ export function isGatewayBaseUrl(baseUrl: string | undefined | null): boolean {
   return typeof baseUrl === "string" && baseUrl.includes("/llm/");
 }
 
+import { createSubsystemLogger, type SubsystemLogger } from "../logging/subsystem.js";
+
 type FlowLookup = {
-  getFlowForSessionId(sessionId: string): { flowId: string; source: string } | null;
+  getFlowForSessionId?(sessionId: string): { flowId: string; source: string } | null;
   getFlowForRun?(runId: string): { flowId: string; source: string } | null;
+  getFlowForSession?(sessionKey: string): { flowId: string; source: string } | null;
 };
+
+let log: SubsystemLogger | undefined;
+function attributionLog(): SubsystemLogger {
+  return (log ??= createSubsystemLogger("pryva"));
+}
 
 function readFlowRegistry(): FlowLookup | undefined {
   const reg = (globalThis as { __pryvaFlowRegistry?: unknown }).__pryvaFlowRegistry;
-  if (reg && typeof (reg as FlowLookup).getFlowForSessionId === "function") {
-    return reg as FlowLookup;
+  // Duck-type on ANY lookup method, not one specific name: the published surface has grown over
+  // time, and requiring exactly `getFlowForSessionId` once rejected a live registry that only
+  // exposed run/sessionKey lookups — silently degrading every gateway ledger row to task=unknown.
+  const lookup = reg as FlowLookup | undefined;
+  if (
+    lookup &&
+    (typeof lookup.getFlowForRun === "function" ||
+      typeof lookup.getFlowForSessionId === "function" ||
+      typeof lookup.getFlowForSession === "function")
+  ) {
+    return lookup;
   }
   return undefined;
 }
@@ -47,7 +64,8 @@ function readFlowRegistry(): FlowLookup | undefined {
 export function buildGatewayAttribution(
   baseUrl: string | undefined | null,
   sessionId: string | undefined | null,
-  runId?: string | undefined | null,
+  runId?: string | null,
+  sessionKey?: string | null,
 ): Record<string, string> | undefined {
   if (!isGatewayBaseUrl(baseUrl)) {
     return undefined;
@@ -56,15 +74,26 @@ export function buildGatewayAttribution(
   let flowId: string | undefined;
   try {
     const registry = readFlowRegistry();
+    // Resolution mirrors FlowRegistry.resolve: runId is per-turn exact and wins; sessionId and
+    // sessionKey are session-scoped fallbacks. sessionKey matters for call sites that never learn
+    // the runId (sdk.ts streamFn) and for runs whose sessionId binding lost the bind race.
     const flow =
       (runId && registry?.getFlowForRun?.(runId)) ||
-      (sessionId && registry?.getFlowForSessionId(sessionId)) ||
+      (sessionId && registry?.getFlowForSessionId?.(sessionId)) ||
+      (sessionKey && registry?.getFlowForSession?.(sessionKey)) ||
       null;
     if (flow?.source) {
       task = flow.source;
     }
     if (flow?.flowId) {
       flowId = flow.flowId;
+    }
+    if (!flow) {
+      // A gateway-bound call the ledger will meter as task=unknown. Name the miss precisely so a
+      // live container log answers "which identifier failed to resolve" without a repro rebuild.
+      attributionLog().warn(
+        `gateway attribution unresolved (ledger will show task=unknown): registry=${registry ? "present" : "MISSING"} runId=${runId ?? "-"} sessionId=${sessionId ?? "-"} sessionKey=${sessionKey ?? "-"}`,
+      );
     }
   } catch {
     // fail-open: attribution must never break a real LLM call

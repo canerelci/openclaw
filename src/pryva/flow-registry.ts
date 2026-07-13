@@ -344,6 +344,10 @@ export function normalizeTrigger(trigger: string | undefined): FlowSource {
 export type PryvaFlowRegistryGlobal = {
   getFlowForSession(sessionKey: string): { flowId: string; source: FlowSource } | null;
   getFlowForRun(runId: string): FlowBinding | null;
+  /** Telemetry fallback used by gateway attribution (buildGatewayAttribution) when a call site
+   *  only knows the session id. MUST stay on this surface: attribution duck-types the global on
+   *  it, so dropping it silently degrades every gateway ledger row to task=unknown. */
+  getFlowForSessionId(sessionId: string): FlowBinding | null;
   bindExternalFlow(runId: string, flowId: string, source: FlowSource, parentFlowId?: string): void;
   /** D5: attach an external flow by SESSION so a gateway sessions.send/steer run
    *  re-enters that flow. Consumed at before_agent_start. */
@@ -415,6 +419,7 @@ export function publishFlowRegistry(registry: FlowRegistry): PryvaFlowRegistryGl
   const surface: PryvaFlowRegistryGlobal = {
     getFlowForSession: (sessionKey: string) => registry.getFlowForSession(sessionKey),
     getFlowForRun: (runId: string) => registry.getFlowForRun(runId),
+    getFlowForSessionId: (sessionId: string) => registry.getFlowForSessionId(sessionId),
     bindExternalFlow: (runId, flowId, source, parentFlowId) =>
       registry.bindExternalFlow(runId, flowId, source, parentFlowId),
     attachExternalFlowBySession: (sessionKey, flowId, source, parentFlowId) =>

@@ -120,4 +120,57 @@ describe("buildGatewayAttribution", () => {
       "unknown",
     );
   });
+
+  it("accepts a surface WITHOUT getFlowForSessionId (the pre-fix live shape) and resolves via runId", () => {
+    // Regression: the published global once lacked getFlowForSessionId, and the duck-type check
+    // required exactly that method — so the live registry was rejected and EVERY gateway call
+    // metered as task=unknown even though the flow was bound. Any lookup method must qualify.
+    publishFakeRegistry({
+      getFlowForRun: (runId) =>
+        runId === "run-1" ? { flowId: "fl-heartbeat", source: "heartbeat" } : null,
+    } as never);
+    const headers = buildGatewayAttribution(gatewayUrl, "sess-1", "run-1");
+    expect(headers?.["X-Pryva-Task"]).toBe("heartbeat");
+    expect(headers?.["X-Pryva-Flow-Id"]).toBe("fl-heartbeat");
+  });
+
+  it("falls back to sessionKey when neither runId nor sessionId is bound", () => {
+    publishFakeRegistry({
+      getFlowForSessionId: () => null,
+      getFlowForRun: () => null,
+      getFlowForSession: (sessionKey: string) =>
+        sessionKey === "agent:main:main" ? { flowId: "fl-hb", source: "heartbeat" } : null,
+    } as never);
+    const headers = buildGatewayAttribution(gatewayUrl, "sess-1", "run-1", "agent:main:main");
+    expect(headers?.["X-Pryva-Task"]).toBe("heartbeat");
+    expect(headers?.["X-Pryva-Flow-Id"]).toBe("fl-hb");
+  });
+
+  it("resolves through the REAL published registry surface (publishFlowRegistry) end to end", async () => {
+    // The exact integration that broke live: FlowRegistry binds a heartbeat flow, the pipeline
+    // publishes the read-only surface, and attribution must resolve through THAT surface — not
+    // through a test double with a friendlier shape.
+    const { FlowRegistry, publishFlowRegistry } = await import("./flow-registry.js");
+    const registry = new FlowRegistry();
+    registry.bindFlow("fl-live", "heartbeat", {
+      runId: "run-live",
+      sessionKey: "agent:main:main",
+      sessionId: "sess-live",
+    });
+    publishFlowRegistry(registry);
+    expect(buildGatewayAttribution(gatewayUrl, "sess-live", "run-live")).toEqual({
+      "X-Pryva-Caller": "ocw",
+      "X-Pryva-Agent": "main",
+      "X-Pryva-Task": "heartbeat",
+      "X-Pryva-Flow-Id": "fl-live",
+    });
+    // sessionId-only call site (sdk.ts streamFn) must resolve too.
+    expect(buildGatewayAttribution(gatewayUrl, "sess-live")?.["X-Pryva-Task"]).toBe("heartbeat");
+    // sessionKey-only resolution (no runId/sessionId) must resolve as well.
+    expect(
+      buildGatewayAttribution(gatewayUrl, undefined, undefined, "agent:main:main")?.[
+        "X-Pryva-Task"
+      ],
+    ).toBe("heartbeat");
+  });
 });

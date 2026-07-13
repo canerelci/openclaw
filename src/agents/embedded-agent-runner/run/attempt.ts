@@ -70,7 +70,7 @@ import {
   transformProviderSystemPrompt,
 } from "../../../plugins/provider-runtime.js";
 import { getPluginToolMeta } from "../../../plugins/tools.js";
-import { buildGatewayAttribution, isGatewayBaseUrl } from "../../../pryva/gateway-attribution.js";
+import { buildGatewayAttribution } from "../../../pryva/gateway-attribution.js";
 import { isSubagentSessionKey } from "../../../routing/session-key.js";
 import { annotateInterSessionPromptText } from "../../../sessions/input-provenance.js";
 import { isTranscriptOnlyOpenClawAssistantMessage } from "../../../shared/transcript-only-openclaw-assistant.js";
@@ -2870,25 +2870,31 @@ export async function runEmbeddedAttempt(
       // models (no-op otherwise). This is the real main-agent path (the SDK-level seam is
       // bypassed here). Inlined to preserve the exact StreamFn type.
       //
-      // Resolved PER CALL, not once at streamFn-build time: this wrapper runs before
-      // before_agent_start's prompt-build phase (attempt.ts prompt build, later in this same
-      // function) has bound the flow for non-message-triggered runs (heartbeat/cron), so a
-      // build-time snapshot could freeze task_type=unknown even though the flow binds moments
-      // later — the model-resolve-phase bind (run.ts) is best-effort timing, not a guarantee.
-      // Recomputing at call time reads whatever is in the FlowRegistry at actual LLM-call time,
-      // by which point before_agent_start has always run.
-      if (isGatewayBaseUrl((params.model as { baseUrl?: string }).baseUrl)) {
+      // Resolved PER CALL against the CALL-TIME model, not once at streamFn-build time:
+      // - the flow for non-message-triggered runs (heartbeat/cron) binds in before_agent_start,
+      //   which can land after this wrapper is built — a build-time snapshot would freeze
+      //   task_type=unknown even though the flow binds moments later;
+      // - the model actually streamed can differ from params.model (per-purpose overrides like
+      //   the heartbeat model, fallback switches), so pre-gating on params.model.baseUrl left
+      //   gateway-bound heartbeat calls without the runId-resolved headers — the live
+      //   task_type=unknown/flow_id NULL ledger bug. Gate on the model the call really uses;
+      //   buildGatewayAttribution stays a no-op for non-gateway baseUrls.
+      {
         const innerStreamFn = activeSession.agent.streamFn;
         activeSession.agent.streamFn = (model, context, options) => {
           const pryvaAttribution = buildGatewayAttribution(
-            (params.model as { baseUrl?: string }).baseUrl,
+            (model as { baseUrl?: string } | undefined)?.baseUrl,
             params.sessionId,
             params.runId,
+            params.sessionKey,
           );
-          return innerStreamFn(model, context, {
-            ...options,
-            headers: { ...pryvaAttribution, ...options?.headers },
-          });
+          return innerStreamFn(
+            model,
+            context,
+            pryvaAttribution
+              ? { ...options, headers: { ...pryvaAttribution, ...options?.headers } }
+              : options,
+          );
         };
       }
       const providerTextTransforms = resolveProviderTextTransforms({
