@@ -16,6 +16,9 @@ export type PipelineInboundContext = {
   originalMessage: string;
   earPlan: Record<string, unknown> | null;
   earStarted: boolean;
+  /** Set only for an Ear-generated out-of-scope direct reply. `true` means the
+   * channel accepted it and before_agent_run may safely skip the main agent. */
+  scopeReplyDelivered?: boolean;
   timestamp: number;
 };
 
