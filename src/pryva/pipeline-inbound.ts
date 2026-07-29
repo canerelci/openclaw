@@ -24,6 +24,7 @@ import type { PipelineInboundContext } from "./context.js";
 import { generateFlowId, normalizeTrigger, type FlowSource } from "./flow-registry.js";
 import { cancelInnerVoice, parseInnerVoiceDirective, scheduleInnerVoice } from "./inner-voice.js";
 import { logFlowStep, sleep, type PryvaPipeline } from "./pipeline.js";
+import { isOutOfScopePlan, scopePlanDirective } from "./scope.js";
 import { currentTimeContext } from "./time.js";
 
 // Inbound dedup — REQUIRED, not an optimization. Two dispatch paths re-fire
@@ -110,15 +111,40 @@ export async function onBeforeAgentRun(
     return;
   }
   const key = `${ctx?.sessionKey ?? `${channel}:${sender}`}|${hashPrompt(prompt)}`;
-  if (!seenRunRecently(key)) {
-    return;
+  if (seenRunRecently(key)) {
+    pipeline.log.debug(`blocked duplicate inbound run (channel=${channel} sender=${sender})`);
+    return {
+      outcome: "block",
+      reason: "pryva: duplicate inbound run (spool retry / re-dispatch)",
+      category: "dedup",
+    };
   }
-  pipeline.log.debug(`blocked duplicate inbound run (channel=${channel} sender=${sender})`);
-  return {
-    outcome: "block",
-    reason: "pryva: duplicate inbound run (spool retry / re-dispatch)",
-    category: "dedup",
-  };
+
+  // Ear role-scope gate for messages that were too long for inbound_claim. Wait
+  // for the same Ear call the prompt stage already consumes — no second LLM
+  // classification. message_received delivers the LLM-written one-line rejection;
+  // only block the expensive main turn after that channel delivery succeeds.
+  let entry = pipeline.ctxStore.findByRecipient(sender, channel);
+  if (entry?.earStarted && !entry.earPlan) {
+    for (let i = 0; i < 150 && entry && !entry.earPlan; i++) {
+      await sleep(100);
+      entry = pipeline.ctxStore.findByRecipient(sender, channel);
+    }
+  }
+  const isOutOfScope = isOutOfScopePlan(entry?.earPlan);
+  if (isOutOfScope) {
+    for (let i = 0; i < 30 && entry?.scopeReplyDelivered === undefined; i++) {
+      await sleep(50);
+    }
+    if (entry?.scopeReplyDelivered === true) {
+      pipeline.log.debug(`blocked out-of-scope inbound run (channel=${channel} sender=${sender})`);
+      return {
+        outcome: "block",
+        reason: "pryva: Ear answered out-of-scope request directly",
+        category: "scope",
+      };
+    }
+  }
 }
 
 /** Run the Ear analysis stage and store the plan on the context. */
@@ -152,9 +178,9 @@ async function runEar(pipeline: PryvaPipeline, entry: PipelineInboundContext): P
 async function deliverFastAck(
   pipeline: PryvaPipeline,
   opts: { to: string; content: string; channel: string; accountId?: string; sessionKey?: string },
-): Promise<void> {
+): Promise<boolean> {
   if (!pipeline.rawCfg) {
-    return;
+    return false;
   }
   try {
     const { sendMessage } = await import("../infra/outbound/message.js");
@@ -171,8 +197,10 @@ async function deliverFastAck(
       cfg: pipeline.rawCfg,
       bestEffort: true,
     });
+    return true;
   } catch (err) {
     pipeline.log.debug(`fast-ack delivery failed: ${String(err)}`);
+    return false;
   }
 }
 
@@ -381,6 +409,33 @@ export async function onMessageReceived(
           );
           void deliverFastAck(pipeline, { to: from, content: ackText, channel, sessionKey });
         }
+        // A longer out-of-scope request skipped the pre-agent quick-reply probe. Ear owns the
+        // same behavior here: deliver its generated one-sentence rejection, then let
+        // before_agent_run block the main LLM only after delivery succeeds.
+        const scopeReply =
+          isOutOfScopePlan(entry.earPlan) && typeof entry.earPlan?.direct_reply === "string"
+            ? entry.earPlan.direct_reply.trim()
+            : "";
+        if (scopeReply) {
+          logFlowStep(
+            pipeline,
+            { flowId },
+            {
+              step_name: "ear_scope_rejection",
+              step_type: "outbound",
+              status: "ok",
+              input_text: content.slice(0, 500),
+              output_text: scopeReply.slice(0, 500),
+              metadata: { scope_rejection: true, ear_direct: true, channel, sender: from },
+            },
+          );
+          entry.scopeReplyDelivered = await deliverFastAck(pipeline, {
+            to: from,
+            content: scopeReply,
+            channel,
+            sessionKey,
+          });
+        }
         // Ear-path inner-voice directive (first-contact greeting that reached the Ear instead of
         // being claimed): schedule the same self-wake. Mutually exclusive with the claim path per
         // inbound. Fail-open — absent/invalid → nothing scheduled.
@@ -549,7 +604,7 @@ export async function onBeforeAgentStart(
   });
 }
 
-function buildEarPlanBlock(entry: PipelineInboundContext): string | null {
+export function buildEarPlanBlock(entry: PipelineInboundContext): string | null {
   const earPlan = entry.earPlan;
   if (!earPlan || earPlan.fallback === true) {
     return null;
@@ -563,6 +618,10 @@ function buildEarPlanBlock(entry: PipelineInboundContext): string | null {
   }
   if (earPlan.short_circuit === true) {
     lines.push("  Note: Simple message — respond briefly, no tools needed.");
+  }
+  const scopeDirective = scopePlanDirective(earPlan);
+  if (scopeDirective) {
+    lines.push(scopeDirective);
   }
   if (typeof earPlan.response_language === "string") {
     lines.push(`  Response language: ${earPlan.response_language}`);

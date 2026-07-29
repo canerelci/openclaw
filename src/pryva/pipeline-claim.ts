@@ -63,7 +63,12 @@ export async function onInboundClaim(
       is_group: event?.isGroup === true,
     },
     { flowId, timeoutMs: QUICK_REPLY_TIMEOUT_MS },
-  )) as { claim?: unknown; reply?: unknown; inner_voice?: unknown } | null;
+  )) as {
+    claim?: unknown;
+    claim_type?: unknown;
+    reply?: unknown;
+    inner_voice?: unknown;
+  } | null;
 
   const claimed = result?.claim === true;
   const reply = typeof result?.reply === "string" ? result.reply.trim() : "";
@@ -99,6 +104,7 @@ export async function onInboundClaim(
         channel: event?.channel ?? ctx?.channelId ?? null,
         sender: event?.senderId ?? ctx?.senderId ?? null,
         pryva_quick_reply: true,
+        claim_type: typeof result?.claim_type === "string" ? result.claim_type : "social",
       },
     },
   );
