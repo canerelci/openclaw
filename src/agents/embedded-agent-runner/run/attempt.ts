@@ -2486,6 +2486,11 @@ export async function runEmbeddedAttempt(
           sessionManager,
           settingsManager,
           resourceLoader,
+          // Pryva: thread the turn's runId + sessionKey into the SDK streamFn so
+          // buildGatewayAttribution can resolve heartbeat/cron flows when that path is used
+          // (attempt.ts also layers its own per-call wrapper; both must carry runId).
+          runId: params.runId,
+          sessionKey: params.sessionKey,
           resolveDeferredTool: deferredDirectoryToolsCallable
             ? ({ toolCall }) => {
                 const tool = resolveToolSearchCatalogTool(

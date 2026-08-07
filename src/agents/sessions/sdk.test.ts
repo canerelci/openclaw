@@ -1,7 +1,7 @@
 // Agent session SDK tests cover default tool wiring, prompt preservation, and
 // session write-lock behavior.
 import { Type } from "typebox";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Context, Model, SimpleStreamOptions } from "../../llm/types.js";
 
 const thinkingMocks = vi.hoisted(() => ({
@@ -87,7 +87,10 @@ function createResourceLoaderWithHandlers(
   };
 }
 
-async function createSessionAndStreamModel(model: Model): Promise<SimpleStreamOptions> {
+async function createSessionAndStreamModel(
+  model: Model,
+  extras: { runId?: string; sessionKey?: string } = {},
+): Promise<SimpleStreamOptions> {
   streamMocks.streamSimple.mockClear();
   const { session } = await createAgentSession({
     model,
@@ -95,6 +98,8 @@ async function createSessionAndStreamModel(model: Model): Promise<SimpleStreamOp
     sessionManager: SessionManager.inMemory(),
     settingsManager: SettingsManager.inMemory(),
     modelRegistry: ModelRegistry.inMemory(AuthStorage.inMemory()),
+    runId: extras.runId,
+    sessionKey: extras.sessionKey,
   });
 
   await session.agent.streamFn?.(
@@ -240,6 +245,103 @@ describe("createAgentSession attribution headers", () => {
 
     expect(providerOptions.headers).toMatchObject({ "User-Agent": "openclaw" });
     expect(endpointOptions.headers).toMatchObject({ "User-Agent": "openclaw" });
+  });
+});
+
+describe("createAgentSession pryva gateway attribution (sdk streamFn)", () => {
+  // Mirrors src/pryva/gateway-attribution.test.ts for the SDK call site
+  // (src/agents/sessions/sdk.ts streamFn). Heartbeat/cron bind by runId; without
+  // threading runId into createAgentSession the SDK path degrades to task=unknown.
+
+  afterEach(() => {
+    (globalThis as { __pryvaFlowRegistry?: unknown }).__pryvaFlowRegistry = undefined;
+  });
+
+  const gatewayModel: Model = {
+    ...testModel,
+    id: "llama-3.1-8b-instant",
+    provider: "groq",
+    baseUrl: "https://gw.pryva.internal/llm/groq/v1",
+  };
+
+  it("attaches heartbeat task + flow id when runId is threaded into createAgentSession", async () => {
+    (globalThis as { __pryvaFlowRegistry?: unknown }).__pryvaFlowRegistry = {
+      getFlowForSessionId: () => ({ flowId: "fl-stale", source: "owner_message" }),
+      getFlowForRun: (runId: string) =>
+        runId === "run-hb-1" ? { flowId: "fl-heartbeat", source: "heartbeat" } : null,
+    };
+
+    const options = await createSessionAndStreamModel(gatewayModel, { runId: "run-hb-1" });
+
+    expect(options.headers).toMatchObject({
+      "X-Pryva-Caller": "ocw",
+      "X-Pryva-Agent": "main",
+      "X-Pryva-Task": "heartbeat",
+      "X-Pryva-Flow-Id": "fl-heartbeat",
+    });
+  });
+
+  it("resolves via sessionKey when runId is not bound (sdk fallback rung)", async () => {
+    (globalThis as { __pryvaFlowRegistry?: unknown }).__pryvaFlowRegistry = {
+      getFlowForSessionId: () => null,
+      getFlowForRun: () => null,
+      getFlowForSession: (sessionKey: string) =>
+        sessionKey === "agent:main:main" ? { flowId: "fl-cron", source: "cron" } : null,
+    };
+
+    const options = await createSessionAndStreamModel(gatewayModel, {
+      runId: "run-unbound",
+      sessionKey: "agent:main:main",
+    });
+
+    expect(options.headers).toMatchObject({
+      "X-Pryva-Task": "cron",
+      "X-Pryva-Flow-Id": "fl-cron",
+    });
+  });
+
+  it("reflects a flow bound AFTER session construction — per-call, not build-time snapshot", async () => {
+    const runs = new Map<string, { flowId: string; source: string }>();
+    (globalThis as { __pryvaFlowRegistry?: unknown }).__pryvaFlowRegistry = {
+      getFlowForSessionId: () => null,
+      getFlowForRun: (runId: string) => runs.get(runId) ?? null,
+    };
+
+    streamMocks.streamSimple.mockClear();
+    const { session } = await createAgentSession({
+      model: gatewayModel,
+      resourceLoader: createEmptyResourceLoader(),
+      sessionManager: SessionManager.inMemory(),
+      settingsManager: SettingsManager.inMemory(),
+      modelRegistry: ModelRegistry.inMemory(AuthStorage.inMemory()),
+      runId: "run-late",
+    });
+
+    await session.agent.streamFn?.(gatewayModel, { messages: [], systemPrompt: "", tools: [] }, {});
+    const early = streamMocks.streamSimple.mock.lastCall?.[2] as SimpleStreamOptions;
+    expect(early.headers).toMatchObject({ "X-Pryva-Task": "unknown" });
+    expect(early.headers).not.toHaveProperty("X-Pryva-Flow-Id");
+
+    runs.set("run-late", { flowId: "fl-late", source: "heartbeat" });
+
+    await session.agent.streamFn?.(gatewayModel, { messages: [], systemPrompt: "", tools: [] }, {});
+    const late = streamMocks.streamSimple.mock.lastCall?.[2] as SimpleStreamOptions;
+    expect(late.headers).toMatchObject({
+      "X-Pryva-Task": "heartbeat",
+      "X-Pryva-Flow-Id": "fl-late",
+    });
+  });
+
+  it("does not emit pryva headers for a non-gateway baseUrl even with runId", async () => {
+    (globalThis as { __pryvaFlowRegistry?: unknown }).__pryvaFlowRegistry = {
+      getFlowForRun: () => ({ flowId: "fl-x", source: "heartbeat" }),
+      getFlowForSessionId: () => ({ flowId: "fl-x", source: "heartbeat" }),
+    };
+    const options = await createSessionAndStreamModel(
+      { ...testModel, baseUrl: "https://api.groq.com/openai/v1" },
+      { runId: "run-1" },
+    );
+    expect(options.headers).toBeUndefined();
   });
 });
 

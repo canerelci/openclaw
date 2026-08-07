@@ -20,6 +20,9 @@ type EmbeddedAgentSessionOptions = {
   resourceLoader: unknown;
   resolveDeferredTool?: CreateAgentSessionOptions["resolveDeferredTool"];
   withSessionWriteLock?: CreateAgentSessionOptions["withSessionWriteLock"];
+  /** Pryva gateway attribution — threaded into createAgentSession for the SDK streamFn path. */
+  runId?: CreateAgentSessionOptions["runId"];
+  sessionKey?: CreateAgentSessionOptions["sessionKey"];
 };
 
 /** Invokes the supplied session factory with the prepared embedded-agent session options. */
