@@ -37,12 +37,19 @@ import {
  * Ear plan + original message text for Cortex/Mouth context, NEVER for flow
  * attribution (flow identity is resolved structurally from runId/sessionKey below).
  */
+// Message-origin sources whose outbound genuinely answers an inbound turn.
+// Cortex QA ("does this reply address the question?") is only meaningful for these.
+const MESSAGE_REPLY_SOURCES = new Set(["owner_message", "contact_message", "internal_chat"]);
+
 function matchInboundContext(
   pipeline: PryvaPipeline,
   to: string | undefined,
   channelId: string | undefined,
 ): PipelineInboundContext | null {
-  return pipeline.ctxStore.findByRecipient(to, channelId) ?? pipeline.ctxStore.findLatest();
+  // T245: NEVER fall back to findLatest() — that borrows an unrelated inbound
+  // (e.g. a concurrent office-room turn) and makes Cortex mis-judge system pushes
+  // / proactive owner delivery. Recipient match only; no match → no original_message.
+  return pipeline.ctxStore.findByRecipient(to, channelId) ?? null;
 }
 
 export async function onMessageSending(
@@ -100,6 +107,19 @@ export async function onMessageSending(
     );
   }
 
+  // T245 AND-gate (design of record): run Cortex+Mouth ONLY when BOTH
+  // (1) binding.source is a genuine inbound-message source, AND
+  // (2) the outbound's flow is the same as the matched inbound's flow.
+  // System/CLI/relay/inner_voice/heartbeat pushes fail one or both → skip QA,
+  // deliver sanitized content verbatim (never cancel). Fail-open toward delivery.
+  const isReplyToMatchedInbound = Boolean(
+    binding?.source &&
+    MESSAGE_REPLY_SOURCES.has(binding.source) &&
+    matchedFlowId &&
+    binding.flowId &&
+    matchedFlowId === binding.flowId,
+  );
+
   if (isErrorReply) {
     const responseLanguage =
       typeof earPlan?.response_language === "string" ? earPlan.response_language : undefined;
@@ -142,14 +162,26 @@ export async function onMessageSending(
       metadata: {
         is_ack: isAck,
         length: content.length,
-        cortex: !isAck && !pipeline.cfg.pipeline.disableCortex && content.length > 40,
+        // T245 AND-gate: Cortex only for genuine inbound replies (source + flow match).
+        cortex:
+          !isAck &&
+          !pipeline.cfg.pipeline.disableCortex &&
+          content.length > 40 &&
+          isReplyToMatchedInbound,
         channel: channel ?? null,
         to: to ?? null,
+        is_reply_to_matched_inbound: isReplyToMatchedInbound,
+        binding_source: binding?.source ?? null,
       },
     },
   );
 
-  if (!isAck && !pipeline.cfg.pipeline.disableCortex && content.length > 40) {
+  if (
+    !isAck &&
+    !pipeline.cfg.pipeline.disableCortex &&
+    content.length > 40 &&
+    isReplyToMatchedInbound
+  ) {
     const toolEvidence = getToolEvidence(runId);
     const toolCallsCount = getToolCallsCount(runId);
     const recipientIsOwner = earPlan?.is_owner === true || binding?.source === "owner_message";
@@ -184,6 +216,12 @@ export async function onMessageSending(
     }
   } else if (!isAck && content.length > 40 && pipeline.cfg.pipeline.disableCortex) {
     pipeline.log.warn(`cortex skipped (disabled) for outbound to ${to ?? "?"} [${flowId}]`);
+  } else if (!isAck && content.length > 40 && !isReplyToMatchedInbound) {
+    // System push / proactive / flow-mismatched outbound: skip Cortex, deliver verbatim.
+    pipeline.log.warn(
+      `cortex skipped (not a reply to matched inbound flow) to ${to ?? "?"} ` +
+        `source=${binding?.source ?? "none"} matched=${matchedFlowId ?? "none"} [${flowId}]`,
+    );
   }
 
   // Mouth polish ONLY when the draft needs formatting help — not merely because it is long.
@@ -192,7 +230,7 @@ export async function onMessageSending(
   // substance belong to the agent + backend, not a formatter. Triggers are structural only:
   // markdown / tables / code fences / list markup / UUID-shaped tokens.
   const needsMouth = /[|#*`[\]{}]/.test(content) || /\b[0-9a-f]{8}-[0-9a-f]{4}\b/i.test(content);
-  if (!isAck && !pipeline.cfg.pipeline.disableMouth && needsMouth) {
+  if (!isAck && !pipeline.cfg.pipeline.disableMouth && needsMouth && isReplyToMatchedInbound) {
     const result = (await pryvaFetch(
       pipeline.cfg,
       "POST",
