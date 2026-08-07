@@ -171,6 +171,11 @@ export async function prepareEmbeddedAttemptAgentSession(input: {
     sessionManager: input.sessionManager,
     settingsManager,
     resourceLoader,
+    // Pryva: thread the turn's runId + sessionKey into the SDK streamFn so
+    // buildGatewayAttribution can resolve heartbeat/cron flows when that path is used
+    // (attempt.ts also layers its own per-call wrapper; both must carry runId).
+    runId: attempt.runId,
+    sessionKey: attempt.sessionKey,
     resolveDeferredTool: input.clientToolPreparation.deferredDirectoryToolsCallable
       ? ({ toolCall }) => {
           const toolAbortSignal =

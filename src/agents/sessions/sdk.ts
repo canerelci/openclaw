@@ -52,6 +52,17 @@ export interface CreateAgentSessionOptions extends Omit<
   tools: string[];
   /** Hydrate an authorized tool deferred out of the current provider-visible tool set. */
   resolveDeferredTool?: AgentOptions["resolveDeferredTool"];
+  /**
+   * Pryva: optional run id for gateway attribution (X-Pryva-Task / X-Pryva-Flow-Id).
+   * Heartbeat/cron flows bind by runId in before_agent_start; without this the SDK streamFn
+   * can only look up by sessionId and degrades to task=unknown on the gateway ledger.
+   * Resolved at actual stream call time (per-call), not snapshotted into headers at build time.
+   */
+  runId?: string;
+  /**
+   * Pryva: optional session key for gateway attribution fallback (FlowRegistry sessionKey rung).
+   */
+  sessionKey?: string;
 }
 
 function createSessionPrepareNextTurnWithContext(
@@ -238,9 +249,14 @@ export async function createAgentSession(
       const attributionHeaders = getAttributionHeaders(modelResult, settingsManager);
       // Pryva gateway attribution — billing-critical, always on for gateway-bound calls so the
       // gateway ledger can attribute this call's spend (caller=ocw / agent=main / task=flow source).
+      // Resolve PER CALL (not once at session construction): heartbeat/cron bind their flow in
+      // before_agent_start after the session is built. Prefer runId (exact per-turn), then
+      // sessionId, then sessionKey — same resolution order as attempt.ts / FlowRegistry.
       const pryvaHeaders = buildGatewayAttribution(
         (modelResult as { baseUrl?: string }).baseUrl,
         sessionManager.getSessionId(),
+        options.runId,
+        options.sessionKey,
       );
       return modelRegistryRuntime.llmRuntime.streamSimple(modelResult, context, {
         ...optionsLocal,
