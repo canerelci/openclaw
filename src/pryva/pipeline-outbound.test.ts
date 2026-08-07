@@ -22,14 +22,32 @@ function calls(): FetchCall[] {
   }));
 }
 
-function makePipeline(binding: { flowId: string } | null) {
+type Binding = { flowId: string; source?: string } | null;
+
+function makePipeline(
+  binding: Binding,
+  matched: { originalMessage?: string; earPlan?: unknown; flowId?: string } | null = {
+    originalMessage: "3. görseli beğenmedim",
+    earPlan: null,
+    // Default: inbound flow matches the binding so genuine-reply tests still hit Cortex.
+    flowId: binding?.flowId,
+  },
+) {
   return {
     cfg: { pipeline: {} },
     ctxStore: {
-      findByRecipient: () => ({ originalMessage: "3. görseli beğenmedim", earPlan: null }),
-      findLatest: () => null,
+      findByRecipient: () => matched,
+      findLatest: vi.fn(() => ({
+        originalMessage: "UNRELATED office-room inbound — must never be used",
+        earPlan: null,
+        flowId: "fl-office-room-borrow",
+      })),
     },
-    registry: { resolve: vi.fn(() => binding) },
+    registry: {
+      resolve: vi.fn(() =>
+        binding ? { flowId: binding.flowId, source: binding.source ?? "owner_message" } : null,
+      ),
+    },
     log: { warn: vi.fn(), debug: vi.fn(), info: vi.fn() },
   } as never;
 }
@@ -57,14 +75,20 @@ describe("onMessageSending flow attribution", () => {
     expect(cortex?.opts.flowId).not.toBe("fl-unbound");
   });
 
-  it("falls back to fl-unbound (and warns) only when nothing binds", async () => {
-    const pipeline = makePipeline(null);
+  it("falls back to fl-unbound (and warns) only when nothing binds — and skips Cortex", async () => {
+    // No binding + no matched flow → fl-unbound attribution on the sending step,
+    // but Cortex must NOT run (AND-gate fails; previously this burnt a QA call on
+    // system pushes with wrong/empty original_message).
+    const pipeline = makePipeline(null, null);
     await onMessageSending(pipeline, { to: "owner", content: HONEST }, {
       channelId: "whatsapp",
     } as never);
 
-    const cortex = calls().find((c) => c.path === "/pipeline/cortex");
-    expect(cortex?.opts.flowId).toBe("fl-unbound");
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(false);
+    const step = calls().find(
+      (c) => c.path === "/flows/log-step" && c.body.step_name === "ocw_message_sending",
+    );
+    expect(step?.opts.flowId).toBe("fl-unbound");
     expect(
       (pipeline as unknown as { log: { warn: ReturnType<typeof vi.fn> } }).log.warn,
     ).toHaveBeenCalledWith(expect.stringContaining("outbound unbound"));
@@ -174,5 +198,86 @@ describe("onMessageSending empty-promise backstop", () => {
 
     expect(result?.content).toBe(PROMISE);
     expect(calls().some((c) => c.body?.step_name === "ocw_empty_promise_blocked")).toBe(false);
+  });
+});
+
+describe("onMessageSending T245 Cortex/Mouth AND-gate", () => {
+  const SYSTEM_PUSH =
+    "Ekip odasından: Zeytinyağlı enginar tarifi hazır — sahibine ilet, " +
+    "bu bir sistem push metni ve QA kararı vermemelisin.";
+
+  it("skips Cortex+Mouth for system-source push even when recipient has prior inbound", async () => {
+    const pipeline = makePipeline(
+      { flowId: "fl-system", source: "system" },
+      { originalMessage: "eski owner mesajı", earPlan: null, flowId: "fl-old-owner" },
+    );
+
+    const result = await onMessageSending(
+      pipeline,
+      { to: "telegram:1511273575", content: SYSTEM_PUSH },
+      {
+        channelId: "telegram",
+        sessionKey: "agent:main:main",
+      } as never,
+    );
+
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(false);
+    expect(calls().some((c) => c.path === "/pipeline/mouth")).toBe(false);
+    // Verbatim delivery: no content rewrite
+    expect(result?.content).toBeUndefined();
+    expect(
+      (pipeline as unknown as { log: { warn: ReturnType<typeof vi.fn> } }).log.warn,
+    ).toHaveBeenCalledWith(expect.stringContaining("not a reply to matched inbound flow"));
+    // findLatest must NOT be consulted
+    expect(
+      (pipeline as unknown as { ctxStore: { findLatest: ReturnType<typeof vi.fn> } }).ctxStore
+        .findLatest,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("skips Cortex when flow-match fails (owner-push inherits old inbound via findByRecipient)", async () => {
+    // Same shape as the enginar bug: findByRecipient hits owner's LAST inbound (flow G)
+    // but the push binding is a different/system flow → mismatch → skip.
+    const pipeline = makePipeline(
+      { flowId: "fl-push", source: "owner_message" },
+      { originalMessage: "owner old question", earPlan: null, flowId: "fl-old-inbound" },
+    );
+
+    await onMessageSending(pipeline, { to: "telegram:1", content: SYSTEM_PUSH }, {
+      channelId: "telegram",
+      runId: "run-push",
+    } as never);
+
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(false);
+  });
+
+  it("runs Cortex for a genuine agent reply (source allowlist + flow match)", async () => {
+    const pipeline = makePipeline(
+      { flowId: "fl-turn", source: "owner_message" },
+      { originalMessage: "3. görseli beğenmedim", earPlan: null, flowId: "fl-turn" },
+    );
+
+    await onMessageSending(pipeline, { to: "owner", content: HONEST }, {
+      channelId: "whatsapp",
+      sessionKey: "agent:main:main",
+      runId: "run-7",
+    } as never);
+
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(true);
+    expect(calls().find((c) => c.path === "/pipeline/cortex")?.opts.flowId).toBe("fl-turn");
+  });
+
+  it("skips Cortex when no inbound matches (findLatest must not fill the gap)", async () => {
+    const pipeline = makePipeline({ flowId: "fl-sys", source: "system" }, null);
+
+    await onMessageSending(pipeline, { to: "telegram:9", content: SYSTEM_PUSH }, {
+      channelId: "telegram",
+    } as never);
+
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(false);
+    expect(
+      (pipeline as unknown as { ctxStore: { findLatest: ReturnType<typeof vi.fn> } }).ctxStore
+        .findLatest,
+    ).not.toHaveBeenCalled();
   });
 });
