@@ -382,7 +382,15 @@ const SELF_TURN_META_KEY = "__pryvaSelfTurnMeta";
  * the incoming pryvaFlowId (mapped to `parentFlowId` by the gateway) IS the flow to resume — see
  * scheduleSelfWake's resume branch.
  */
-const FLOW_RESUME_SELF_TURN_SOURCES: ReadonlySet<FlowSource> = new Set<FlowSource>(["platform"]);
+const FLOW_RESUME_SELF_TURN_SOURCES: ReadonlySet<FlowSource> = new Set<FlowSource>([
+  "platform",
+  // An NCW job finishing (planning/research) is defined as a flow_resume source ONLY (see the
+  // FlowSource union): its wake RE-ENTERS the turn that delegated the job. Routing it through the
+  // child-mint branch opened a NEW `ncw_completion` flow_start (observed on prod Defne 2026-08-19:
+  // fl-2da7d80caac4 parented to the heartbeat flow) — which then became the session's binding and
+  // swallowed 210 later heartbeats. Resume the parent instead.
+  "ncw_completion",
+]);
 
 /**
  * Publish the gateway host cron on globalThis so scheduleSessionTurn callers can fall back to it

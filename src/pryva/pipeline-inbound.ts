@@ -579,7 +579,14 @@ export async function onBeforeAgentStart(
   //    bound this runId yet, but it DID bind the sessionKey (same value the run
   //    sees). If a binding exists for this run/session, this turn belongs to it
   //    — bridge runId onto it, no mint, no new flow_start (invariant I2).
-  const existing = pipeline.registry.resolve(runId, sessionId, sessionKey);
+  //    The bridge exists ONLY for that inbound-message race. A heartbeat / cron / system
+  //    run has no inbound message and is by definition a NEW trigger: bridging it onto whatever
+  //    flow last touched the session (and refreshing that binding's startedAt so GC never
+  //    evicts it) made ONE flow absorb 7 days of heartbeats on prod Defne (fl-2da7d80caac4,
+  //    1297 steps, 210 turns). Self-wakes that must re-enter a flow are consumed above (steps
+  //    1b/2/3b) before we get here, so skipping the bridge for these triggers is safe.
+  const selfWakeTrigger = ctx?.trigger !== undefined && ctx?.trigger !== "user";
+  const existing = selfWakeTrigger ? null : pipeline.registry.resolve(runId, sessionId, sessionKey);
   if (existing) {
     pipeline.registry.bindFlow(existing.flowId, existing.source, {
       runId,
