@@ -758,6 +758,8 @@ async function handleSessionSend(params: {
           reason?: string;
           parentFlowId?: string;
           delaySeconds?: number;
+          mustSpeak?: boolean;
+          silent?: boolean;
         }) => Promise<boolean>)
       | undefined;
     const rawThought = (p as { message?: unknown }).message;
@@ -780,6 +782,9 @@ async function handleSessionSend(params: {
             ? { delaySeconds: (p as { delaySeconds: number }).delaySeconds }
             : {}),
           ...((p as { mustSpeak?: boolean }).mustSpeak === true ? { mustSpeak: true } : {}),
+          // Background self-turn: force deliveryMode "none" so the run can never reach a channel
+          // (see PryvaSelfTurnRequest.silent). Ignored unless innerVoice is true.
+          ...((p as { pryvaSilent?: boolean }).pryvaSilent === true ? { silent: true } : {}),
         });
       } catch {
         armed = false;

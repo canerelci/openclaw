@@ -284,6 +284,13 @@ export const SessionsSendParamsSchema = Type.Object(
     // always delivered. Ignored unless innerVoice is true. Owner-observed 2026-07-11: a plan-ready
     // self-turn answered NO_REPLY and the owner was never told.
     mustSpeak: Type.Optional(Type.Boolean()),
+    // Background/self-maintenance self-turn: force `deliveryMode: "none"` on the scheduled turn so it
+    // is STRUCTURALLY unable to deliver to any channel. Without this, an inner-voice turn schedules
+    // with "announce" and channel "last"; on a session with no lastChannel the delivery resolver falls
+    // back to the single configured channel and can take the recipient from allowFrom[0] — so a tenant
+    // with exactly one linked channel could have a "silent" background turn message the owner. The turn
+    // still runs tools and logs flow steps. Ignored unless innerVoice is true.
+    pryvaSilent: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );

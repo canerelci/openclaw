@@ -52,6 +52,42 @@ describe("SessionsSendParamsSchema — Pryva innerVoice self-wake", () => {
     ).toBe(true);
   });
 
+  it("accepts innerVoice with pryvaSilent (a background turn that must never reach a channel)", () => {
+    expect(
+      Value.Check(SessionsSendParamsSchema, {
+        key: "agent:main:main",
+        message: "reconcile the catalog quietly",
+        innerVoice: true,
+        pryvaSilent: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts pryvaSilent alongside the other Pryva self-turn fields", () => {
+    expect(
+      Value.Check(SessionsSendParamsSchema, {
+        key: "agent:main:main",
+        message: "background bookkeeping",
+        innerVoice: true,
+        pryvaSilent: true,
+        pryvaFlowId: "fl-abcdef123456",
+        pryvaFlowSource: "scheduled_todo",
+        delaySeconds: 30,
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects a non-boolean pryvaSilent", () => {
+    expect(
+      Value.Check(SessionsSendParamsSchema, {
+        key: "agent:main:main",
+        message: "background bookkeeping",
+        innerVoice: true,
+        pryvaSilent: "yes",
+      }),
+    ).toBe(false);
+  });
+
   it("still rejects a truly unknown property", () => {
     expect(
       Value.Check(SessionsSendParamsSchema, {
