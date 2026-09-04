@@ -178,6 +178,54 @@ Restrict heartbeats to business hours in a specific timezone:
 
 Outside this window (before 9am or after 10pm Eastern), heartbeats are skipped. The next scheduled tick inside the window will run normally.
 
+### Preflight gate (external veto)
+
+`heartbeat.preflight` lets a backend decide, per tick, whether a heartbeat should run at all —
+**before** any prompt resolution, session work, or LLM call. This is the cheapest possible skip:
+no tokens are spent when the answer is "nothing to do".
+
+```json5
+{
+  agents: {
+    defaults: {
+      heartbeat: {
+        every: "30m",
+        preflight: {
+          url: "https://api.example.com/v1/heartbeat/preflight",
+          token: "shared-secret", // optional; sent as `Authorization: Bearer <token>`
+          timeoutMs: 3000, // optional; default 3000
+        },
+      },
+    },
+  },
+}
+```
+
+The runner issues `GET <url>` with `Accept: application/json` (plus the bearer header when `token`
+is set). The endpoint must answer:
+
+```json
+{ "run": true }
+```
+
+or, to veto the tick:
+
+```json
+{ "run": false, "reason": "no-due-work" }
+```
+
+- `run: true` — the heartbeat continues normally.
+- `run: false` — the heartbeat is skipped with reason `preflight:<reason>` (or `preflight:denied`
+  when `reason` is omitted).
+- **Fails closed.** A timeout, network error, non-2xx status, or unparsable body skips the
+  heartbeat with reason `preflight-unreachable` and logs a warning containing the url and error.
+  The rationale: if the backend is down, everything the heartbeat could usefully do is down too,
+  so running would only burn tokens.
+
+The gate runs immediately after the `activeHours` check and applies to **every** wake — scheduled,
+immediate, manual, and cron. Omitting `preflight` (or leaving `url` unset) disables the gate
+entirely; existing configs behave exactly as before.
+
 ### 24/7 setup
 
 If you want heartbeats to run all day, use one of these patterns:

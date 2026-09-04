@@ -120,6 +120,7 @@ import {
   isRelayableExecCompletionEvent,
 } from "./heartbeat-events-filter.js";
 import { emitHeartbeatEvent, resolveIndicatorType } from "./heartbeat-events.js";
+import { resolveHeartbeatPreflightDecision } from "./heartbeat-preflight.js";
 import {
   computeNextHeartbeatPhaseDueMs,
   resolveHeartbeatPhaseMs,
@@ -160,6 +161,8 @@ import {
 export type HeartbeatDeps = OutboundSendDeps &
   ChannelHeartbeatDeps & {
     getReplyFromConfig?: typeof import("./heartbeat-runner.runtime.js").getReplyFromConfig;
+    /** Injectable fetch used by the heartbeat preflight gate (tests). */
+    fetchImpl?: typeof fetch;
     runtime?: RuntimeEnv;
     getQueueSize?: (lane?: string) => number;
     getCommandLaneSnapshots?: () => readonly CommandLaneSnapshot[];
@@ -1353,6 +1356,31 @@ export async function runHeartbeatOnce(opts: {
   const startedAt = opts.deps?.nowMs?.() ?? Date.now();
   if (!isWithinActiveHours(cfg, heartbeat, startedAt)) {
     return { status: "skipped", reason: "quiet-hours" };
+  }
+
+  // External preflight gate: let the backend veto this heartbeat BEFORE any
+  // lane checks, prompt resolution, session work, flow minting or LLM call.
+  // Applies to every wake (scheduled, immediate, manual, cron) — no special cases.
+  const preflightUrl =
+    typeof heartbeat?.preflight?.url === "string" ? heartbeat.preflight.url.trim() : "";
+  if (preflightUrl) {
+    const decision = await resolveHeartbeatPreflightDecision({
+      url: preflightUrl,
+      token: heartbeat?.preflight?.token,
+      timeoutMs: heartbeat?.preflight?.timeoutMs,
+      fetchImpl: opts.deps?.fetchImpl,
+      onWarn: (message, meta) => {
+        log.warn(message, meta);
+      },
+    });
+    if (!decision.run) {
+      emitHeartbeatEvent({
+        status: "skipped",
+        reason: decision.reason,
+        durationMs: Date.now() - startedAt,
+      });
+      return { status: "skipped", reason: decision.reason };
+    }
   }
 
   const getSize = opts.deps?.getQueueSize ?? getQueueSize;

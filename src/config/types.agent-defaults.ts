@@ -455,6 +455,24 @@ export type AgentDefaultsConfig = {
      * Default: false (only the final heartbeat payload is delivered).
      */
     includeReasoning?: boolean;
+    /**
+     * Optional external preflight gate. When `url` is set, the heartbeat runner
+     * issues `GET <url>` right after the activeHours check and BEFORE any lane
+     * checks, prompt resolution, session work or LLM call. The endpoint must
+     * answer `{ "run": boolean, "reason"?: string }`; `run: false` skips the
+     * heartbeat with reason `preflight:<reason>`.
+     *
+     * Fails CLOSED: a timeout, network error, non-2xx status or unparsable body
+     * skips the heartbeat with reason `preflight-unreachable`.
+     */
+    preflight?: {
+      /** Absolute http(s) URL of the preflight endpoint. */
+      url: string;
+      /** Optional bearer token sent as `Authorization: Bearer <token>`. */
+      token?: string;
+      /** Request timeout in milliseconds. Default: 3000. */
+      timeoutMs?: number;
+    };
   };
   /** Max concurrent agent runs across all conversations. Default: 4. */
   maxConcurrent?: number;
