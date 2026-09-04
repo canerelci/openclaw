@@ -105,8 +105,8 @@ describe("scheduleSelfWake — silent self-turns", () => {
     expect(params?.tag).toBe("pryva-scheduled-todo");
   });
 
-  it("keeps flow attribution unchanged for a silent turn (new child flow via source hint)", async () => {
-    const { pipeline, setSourceHintBySession } = createStubPipeline();
+  it("resumes the parent flow when resumeFlowId is supplied (flow_resume, no child mint)", async () => {
+    const { pipeline, attachExternalFlowBySession, setSourceHintBySession } = createStubPipeline();
 
     await scheduleSelfWake(pipeline, {
       sessionKey: "agent:main:main",
@@ -114,16 +114,17 @@ describe("scheduleSelfWake — silent self-turns", () => {
       source: "scheduled_todo",
       reason: "todo:9",
       tag: "pryva-scheduled-todo",
-      parentFlowId: "fl-abcdef123456",
+      resumeFlowId: "fl-abcdef123456",
       silent: true,
     });
 
-    expect(setSourceHintBySession).toHaveBeenCalledWith(
+    expect(attachExternalFlowBySession).toHaveBeenCalledWith(
       "agent:main:main",
+      "fl-abcdef123456",
       "scheduled_todo",
       "fl-abcdef123456",
-      "todo:9",
     );
+    expect(setSourceHintBySession).not.toHaveBeenCalled();
   });
 
   it("keeps flow_resume attribution unchanged for a silent turn", async () => {
@@ -198,5 +199,40 @@ describe("publishSelfTurn — threads silent through to the scheduler", () => {
       });
       expect(scheduled[0]?.deliveryMode).toBe("announce");
     });
+  });
+
+  it("routes scheduled_todo with parentFlowId through the resume path (attachExternalFlowBySession)", async () => {
+    const g = globalThis as Record<string, unknown>;
+    const previous = g[SELF_TURN_KEY];
+    delete g[SELF_TURN_KEY];
+    try {
+      const { pipeline, scheduled, attachExternalFlowBySession, setSourceHintBySession } =
+        createStubPipeline();
+      publishSelfTurn(pipeline);
+      const fn = g[SELF_TURN_KEY] as (req: Record<string, unknown>) => Promise<boolean>;
+      expect(typeof fn).toBe("function");
+
+      await fn({
+        sessionKey: "agent:main:main",
+        thought: "the todo is due",
+        source: "scheduled_todo",
+        parentFlowId: "fl-backend-minted",
+      });
+
+      expect(scheduled).toHaveLength(1);
+      expect(attachExternalFlowBySession).toHaveBeenCalledWith(
+        "agent:main:main",
+        "fl-backend-minted",
+        "scheduled_todo",
+        "fl-backend-minted",
+      );
+      expect(setSourceHintBySession).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) {
+        delete g[SELF_TURN_KEY];
+      } else {
+        g[SELF_TURN_KEY] = previous;
+      }
+    }
   });
 });

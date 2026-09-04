@@ -403,6 +403,12 @@ const FLOW_RESUME_SELF_TURN_SOURCES: ReadonlySet<FlowSource> = new Set<FlowSourc
   // fl-2da7d80caac4 parented to the heartbeat flow) — which then became the session's binding and
   // swallowed 210 later heartbeats. Resume the parent instead.
   "ncw_completion",
+  // A due-todo self-turn: the backend mints the flow, logs flow_start(source=scheduled_todo), and
+  // passes the flow id as pryvaFlowId. The fork must RE-ENTER that same id (flow_resume) so the
+  // entire trigger→turn→delivery is ONE flow. Without this, the child-mint branch (step 3b) opens
+  // a NEW flow_start under the backend's flow — fragmenting attribution and making the child the
+  // session's binding (which then absorbs subsequent runs).
+  "scheduled_todo",
 ]);
 
 /**
