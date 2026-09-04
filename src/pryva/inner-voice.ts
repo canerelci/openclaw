@@ -164,6 +164,9 @@ export async function scheduleSelfWake(
     /** The thought is a required owner notification — drop the "nothing worth saying → NO_REPLY"
      *  escape so a finished background job (e.g. a plan ready for approval) is always delivered. */
     mustSpeak?: boolean;
+    /** Background self-maintenance: schedule with `deliveryMode: "none"` so this turn is
+     *  STRUCTURALLY unable to deliver to any channel (see PryvaSelfTurnRequest.silent). */
+    silent?: boolean;
   },
 ): Promise<boolean> {
   const { sessionKey, thought, source, reason, tag, parentFlowId } = opts;
@@ -182,7 +185,11 @@ export async function scheduleSelfWake(
     message,
     delayMs,
     deleteAfterRun: true,
-    deliveryMode: "announce",
+    // A silent turn is background work (self-maintenance, bookkeeping): mode "none" makes it
+    // structurally undeliverable. With no explicit cron delivery target, the cron runner short-
+    // circuits to deliveryRequested:false BEFORE resolveDeliveryTarget runs — so the "last"-channel
+    // fallback that can pick the single configured channel + allowFrom[0] is never reached.
+    deliveryMode: opts.silent === true ? "none" : "announce",
     // A failed self-wake must not spam the owner with a raw "⚠️ Cron job … failed:
     // FallbackSummaryError…" message (observed live 2026-07-11, DNS outage): the backend's
     // outcome observer already sees the silence and reschedules/rephrases. Log-only.
@@ -366,6 +373,12 @@ export type PryvaSelfTurnRequest = {
   channel?: string;
   /** Required owner notification — drops the NO_REPLY escape (a finished job the owner awaits). */
   mustSpeak?: boolean;
+  /** Background/self-maintenance turn: force `deliveryMode: "none"` so the run can NEVER reach a
+   *  channel. Structural, not advisory — with mode "none" and no explicit cron target the cron
+   *  runner reports deliveryRequested:false and never resolves a delivery target at all, so the
+   *  single-configured-channel fallback (resolveMessageChannelSelection → allowFrom[0]) cannot
+   *  message the owner. The turn still runs tools and logs flow steps normally. */
+  silent?: boolean;
 };
 export type PryvaSelfTurnFn = (req: PryvaSelfTurnRequest) => Promise<boolean>;
 
@@ -472,6 +485,7 @@ export function publishSelfTurn(pipeline: PryvaPipeline): void {
           : {}),
       ...(req.channel ? { channel: req.channel } : {}),
       ...(req.mustSpeak === true ? { mustSpeak: true } : {}),
+      ...(req.silent === true ? { silent: true } : {}),
     });
   };
   try {
