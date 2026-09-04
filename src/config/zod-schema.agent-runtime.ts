@@ -58,8 +58,40 @@ export const HeartbeatSchema = z
     timeoutSeconds: z.number().int().positive().optional(),
     lightContext: z.boolean().optional(),
     isolatedSession: z.boolean().optional(),
+    /**
+     * Optional external gate consulted before any prompt/LLM work happens.
+     * GET <url> must answer `{ "run": boolean, "reason"?: string }`.
+     */
+    preflight: z
+      .object({
+        url: z.string(),
+        token: z.string().optional(),
+        timeoutMs: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .superRefine((val, ctx) => {
+    const preflightUrl = val.preflight?.url;
+    if (typeof preflightUrl === "string") {
+      let parsedPreflightUrl: URL | undefined;
+      try {
+        parsedPreflightUrl = new URL(preflightUrl);
+      } catch {
+        parsedPreflightUrl = undefined;
+      }
+      if (
+        !parsedPreflightUrl ||
+        (parsedPreflightUrl.protocol !== "http:" && parsedPreflightUrl.protocol !== "https:")
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["preflight", "url"],
+          message: "invalid url (use an absolute http(s) URL)",
+        });
+      }
+    }
+
     if (val.every) {
       try {
         parseDurationMs(val.every, { defaultUnit: "m" });

@@ -45,6 +45,7 @@ import {
 } from "./heartbeat-events-filter.js";
 import { emitHeartbeatEvent } from "./heartbeat-events.js";
 import { heartbeatLog as log } from "./heartbeat-log.js";
+import { resolveHeartbeatPreflightDecision } from "./heartbeat-preflight.js";
 import { shouldUseHeartbeatResponseToolPrompt } from "./heartbeat-runner-config.js";
 import {
   resolveHeartbeatPreflight,
@@ -83,6 +84,8 @@ const CRON_COMMAND_LANE: string = CommandLane.Cron;
 export type HeartbeatDeps = OutboundSendDeps &
   ChannelHeartbeatDeps & {
     getReplyFromConfig?: typeof import("../auto-reply/reply/get-reply.js").getReplyFromConfig;
+    /** Injectable fetch used by the Pryva heartbeat preflight gate (tests). */
+    fetchImpl?: typeof fetch;
     runtime?: RuntimeEnv;
     getQueueSize?: (lane?: string) => number;
     isReplyRunActive?: (sessionKey: string) => boolean;
@@ -173,6 +176,27 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
     // docs promise reason=quiet-hours); every sibling skip past this point
     // emits, so a silent return here hides the window from operators.
     return skippedHeartbeatStage("quiet-hours", startedAt);
+  }
+
+  // Pryva external preflight gate: let the tenant backend veto this heartbeat BEFORE any
+  // lane checks, prompt resolution, session work, flow minting or LLM call.
+  // Applies to every wake (scheduled, immediate, manual, cron) — no special cases.
+  // Distinct from the in-process resolveHeartbeatPreflight wake gate below.
+  const tenantPreflightUrl =
+    typeof heartbeat?.preflight?.url === "string" ? heartbeat.preflight.url.trim() : "";
+  if (tenantPreflightUrl) {
+    const decision = await resolveHeartbeatPreflightDecision({
+      url: tenantPreflightUrl,
+      token: heartbeat?.preflight?.token,
+      timeoutMs: heartbeat?.preflight?.timeoutMs,
+      fetchImpl: opts.deps?.fetchImpl,
+      onWarn: (message, meta) => {
+        log.warn(message, meta);
+      },
+    });
+    if (!decision.run) {
+      return skippedHeartbeatStage(decision.reason, startedAt);
+    }
   }
 
   const shouldPreflightBeforeBusy = shouldPreflightWakeBeforeBusy(
