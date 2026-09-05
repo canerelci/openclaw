@@ -585,17 +585,23 @@ export async function onBeforeAgentStart(
   //    evicts it) made ONE flow absorb 7 days of heartbeats on prod Defne (fl-2da7d80caac4,
   //    1297 steps, 210 turns). Self-wakes that must re-enter a flow are consumed above (steps
   //    1b/2/3b) before we get here, so skipping the bridge for these triggers is safe.
-  //    Two guards:
-  //    (a) trigger: heartbeat/cron/system have an explicit trigger ≠ "user".
-  //    (b) staleness: cron-scheduled self-turns (scheduleSessionTurn) arrive with trigger
-  //        undefined — the same as a genuine inbound race. A binding older than the
-  //        message_received → before_agent_start race window (30s, generous — the race is
-  //        sub-second in practice) is from a prior turn and must not absorb this run.
-  //        Without this, fl-9774232ef369: one stale flow absorbed 3 self-turns across 12 min.
-  const BRIDGE_RACE_WINDOW_MS = 30_000;
+  //    Guard: heartbeat/cron/system have an explicit trigger ≠ "user" and are skipped outright.
+  //    Cron-scheduled self-turns (scheduleSessionTurn) arrive with trigger undefined, BUT they
+  //    always leave a consume-once marker (inner-voice.ts:252-261 → attachExternalFlowBySession
+  //    or setSourceHintBySession) consumed by steps 2/3b BEFORE reaching this bridge. Today only
+  //    inner-voice.ts:206 calls scheduleSessionTurn in product code, but the API is public
+  //    (plugin SDK), so the marker invariant is convention, not enforced. A marker-less self-turn
+  //    that reaches step 4 bridges silently — the warn below makes that visible.
   const selfWakeTrigger = ctx?.trigger !== undefined && ctx?.trigger !== "user";
   const existing = selfWakeTrigger ? null : pipeline.registry.resolve(runId, sessionId, sessionKey);
-  if (existing && Date.now() - existing.startedAt <= BRIDGE_RACE_WINDOW_MS) {
+  if (existing) {
+    if (!channel && !sender) {
+      pipeline.log.warn(
+        `bridge: binding run to existing flow without inbound evidence ` +
+          `(flowId=${existing.flowId} source=${existing.source} sessionKey=${sessionKey} runId=${runId}) — ` +
+          `possible marker-less self-turn; check steps 2/3b consume-once markers`,
+      );
+    }
     pipeline.registry.bindFlow(existing.flowId, existing.source, {
       runId,
       sessionKey,
