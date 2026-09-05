@@ -1,6 +1,6 @@
-// Regression test for the session-flow bridge staleness guard (T349 C566).
-// Three sequential cron/self-turn runs on one session must produce three distinct flows,
-// never bridging onto a stale session flow from a prior turn.
+// Regression test for the session-flow bridge (T349 C566, updated T350).
+// Self-turns with consume-once markers (step 3b) never reach the bridge;
+// queued inbounds always bridge regardless of age.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FlowRegistry, generateFlowId } from "./flow-registry.js";
 import { onBeforeAgentStart } from "./pipeline-inbound.js";
@@ -72,7 +72,7 @@ describe("onBeforeAgentStart — bridge staleness guard (C566)", () => {
     expect(bound!.flowId).toBe(flowId);
   });
 
-  it("does NOT bridge a stale binding (>30s old) — mints a new flow instead", async () => {
+  it("a self-turn with a source hint does NOT bridge — consumed at step 3b, gets its own flow", async () => {
     const registry = new FlowRegistry();
     const pipeline = createStubPipeline(registry);
 
@@ -83,8 +83,10 @@ describe("onBeforeAgentStart — bridge staleness guard (C566)", () => {
       sender: "user-1",
     });
 
-    // 60 seconds later — outside the race window
     vi.advanceTimersByTime(60_000);
+
+    // A cron self-turn always leaves a consume-once marker (inner-voice.ts:252-261)
+    registry.setSourceHintBySession("agent:main:main", "scheduled_todo", undefined, "todo:1");
 
     const ctx = makeCtx({ runId: "run-cron-1", trigger: undefined });
     await onBeforeAgentStart(pipeline, {} as never, ctx);
@@ -92,10 +94,10 @@ describe("onBeforeAgentStart — bridge staleness guard (C566)", () => {
     const bound = registry.getFlowForRun("run-cron-1");
     expect(bound).not.toBeNull();
     expect(bound!.flowId).not.toBe(staleFlowId);
-    expect(bound!.source).toBe("system");
+    expect(bound!.source).toBe("scheduled_todo");
   });
 
-  it("three sequential self-turns never share a flow (the sticky-bridge regression)", async () => {
+  it("three sequential self-turns (with markers) never share a flow (the sticky-bridge regression)", async () => {
     const registry = new FlowRegistry();
     const pipeline = createStubPipeline(registry);
 
@@ -110,9 +112,11 @@ describe("onBeforeAgentStart — bridge staleness guard (C566)", () => {
 
     vi.advanceTimersByTime(10 * 60_000);
 
-    // Three cron self-turns fire sequentially (trigger=undefined, like scheduleSessionTurn)
+    // Three cron self-turns fire sequentially — each leaves a consume-once marker
+    // (inner-voice.ts:252-261), consumed at step 3b before the bridge is reached.
     const flowIds: string[] = [];
     for (let i = 0; i < 3; i++) {
+      registry.setSourceHintBySession("agent:main:main", "scheduled_todo", undefined, `todo:${i}`);
       const runId = `run-self-${i}`;
       const ctx = makeCtx({ runId, trigger: undefined, sessionId: "sess-1" });
       await onBeforeAgentStart(pipeline, {} as never, ctx);
