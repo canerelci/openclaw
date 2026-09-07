@@ -132,6 +132,36 @@ describe("handleOfficeRoomInbound", () => {
     expect(dispatchReplyMock).not.toHaveBeenCalled();
   });
 
+  it("awaits the session meta task before dispatch via afterRecord", async () => {
+    dispatchReplyMock.mockReset();
+    setOfficeRoomRuntime(createRuntime());
+
+    await handleOfficeRoomInbound({
+      account: createAccount(),
+      config: {} as CoreConfig,
+      message: createMessage(),
+      access: { shouldDispatch: true, commandAuthorized: true },
+    });
+
+    const params = dispatchReplyMock.mock.calls[0]?.[0] as {
+      record: { trackSessionMetaTask?: (task: Promise<unknown>) => void };
+      afterRecord?: () => Promise<void>;
+    };
+    expect(params.record.trackSessionMetaTask).toBeTypeOf("function");
+    expect(params.afterRecord).toBeTypeOf("function");
+
+    let metaResolved = false;
+    const metaTask = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        metaResolved = true;
+        resolve();
+      }, 10);
+    });
+    params.record.trackSessionMetaTask!(metaTask);
+    await params.afterRecord!();
+    expect(metaResolved).toBe(true);
+  });
+
   it("skips empty agent output instead of posting a content-free room message", async () => {
     dispatchReplyMock.mockReset();
     sendOfficeRoomTextMock.mockReset();

@@ -155,6 +155,25 @@ export async function startOfficeRoomGatewayAccount(
       await safePresence({ client, account, status: "running", online: true, log: ctx.log });
       try {
         await handleOfficeRoomInbound({ account, config, message });
+      } catch (error) {
+        ctx.log?.warn?.(
+          `[${account.accountId}] Office Room turn failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        try {
+          await client.sendMessage({
+            fromName: account.participantName,
+            body: `Undelivered: msg #${message.id} from @${message.fromName} — turn failed (${
+              error instanceof Error ? error.message : "unknown error"
+            })`,
+            mentions: [message.fromName],
+          });
+        } catch {
+          ctx.log?.warn?.(
+            `[${account.accountId}] failed to send undelivered notice for msg #${message.id}`,
+          );
+        }
       } finally {
         if (!queue.busy) {
           await safePresence({ client, account, status: "idle", online: true, log: ctx.log });
