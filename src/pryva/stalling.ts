@@ -103,12 +103,16 @@ export function getToolCallsCount(runId: string | undefined): number {
 
 // A produce/send/fix verb in Turkish progressive (-ıyorum/-iyoruz) or future (-acağım/-eceğiz).
 // Past tense is deliberately excluded: "hemen düzelttim" reports work, it does not promise it.
+//
+// Unicode word boundary: JS \b is ASCII-only and silently fails on non-ASCII initial chars
+// (üret, çiz never matched after a space). Use (?<=\s|^) / (?=\s|$) instead.
 const TR_PROMISE_VERB =
-  /\b(?:hazırl|oluştur|üret|çiz|tasarl|gönder|yolla|ilet|at|güncell|düzelt|revize\s*ed|yenile|halled|bak|başl|yap|paylaş)\w*(?:ıyorum|iyorum|uyorum|üyorum|ıyoruz|iyoruz|uyoruz|üyoruz|acağım|eceğim|acağız|eceğiz)\b/i;
+  /(?<=\s|^)(?:hazırl|oluştur|üret|çiz|tasarl|gönder|yolla|ilet|at|güncell|düzelt|revize\s*ed|yenile|halled|bak|başl|yap|paylaş)\w*(?:ıyorum|iyorum|uyorum|üyorum|ıyoruz|iyoruz|uyoruz|üyoruz|acağım|eceğim|acağız|eceğiz)(?=\s|[.!?,;:]|$)/i;
 
 // "in a few minutes", "right now", "it's coming" — the deliverable is imminent.
+// şimdi was silently dead (non-ASCII initial + \b); fixed with Unicode-aware boundary.
 const TR_IMMEDIACY =
-  /\b(?:hemen|birazdan|az\s+sonra|şimdi|yakında|geliyor|gelecek|birkaç\s+(?:dakika|dk|saniye)|dakika\s+içinde|dakikaya|kısa\s+süre\s+içinde|birazcık\s+sonra)\b/i;
+  /(?<=\s|^)(?:hemen|birazdan|az\s+sonra|şimdi|yakında|geliyor|gelecek|birkaç\s+(?:dakika|dk|saniye)|dakika\s+içinde|dakikaya|kısa\s+süre\s+içinde|birazcık\s+sonra)(?=\s|[.!?,;:]|$)/i;
 
 const EN_PROMISE_VERB =
   /\b(?:i'?ll|i\s+am|i'?m)\s+(?:going\s+to\s+|about\s+to\s+)?(?:prepar\w*|mak\w*|creat\w*|generat\w*|design\w*|draw\w*|send\w*|fix\w*|redo\w*|rework\w*|updat\w*|put\w*|get\w*|work\w*)\b|\bgetting\s+(?:it|this|that|one)\s+ready\b|\bon\s+it\b/i;
@@ -128,14 +132,29 @@ const TR_ADOPT_CLAIM =
   /\b(?:sahiplen|bağla|bağlıyor|yönet|yönetece|kur|kuruyor|entegre|aktifleş|etkinleş|ayarlad|ayarlıyor|tan[ıi]mlad)\w*/i;
 const EN_ADOPT_CLAIM =
   /\b(?:adopt\w*|connect\w*|link\w*|hook\w*\s+up|manag\w*|configur\w*|set\s+up|integrat\w*|activat\w*)\b/i;
+// şifre was silently dead (non-ASCII initial + \b); fixed with Unicode-aware boundary.
 const TR_RESOURCE_OBJ =
-  /\b(?:token|hesab|hesap|kanal|bot|@\w+|kimlik\s*bilg|şifre|api\s*key|erişim)\w*/i;
+  /(?<=\s|^)(?:token|hesab|hesap|kanal|bot|@\w+|kimlik\s*bilg|şifre|api\s*key|erişim)\w*/i;
 const EN_RESOURCE_OBJ =
   /\b(?:token|account|channel|bot|@\w+|credential|password|api\s*key|handle|access)\w*/i;
+
+// Temporal markers indicating prior-time work: "dün", "geçen hafta", "yesterday", etc.
+// A sentence with these is reporting on past work, not claiming current action.
+// ACCEPTED RESIDUAL: this is also a bypass — "daha önce ayarladım" passes unchecked
+// whether or not it is true. Bounded and acceptable (Mira #6792).
+const TEMPORAL_PRIOR =
+  /(?:dün|geçen\s+(?:hafta|ay|gün|gece)|daha\s+önce|önceden|geçtiğimiz|bir\s+süre\s+önce|yesterday|last\s+(?:week|night|time|month)|earlier|previously|before|already)/i;
+
+// Turkish evidential mood (-mış/-miş/-muş/-müş): "it appears to have been done",
+// not "I did it". Separates narration/reportive from performative claims.
+const TR_EVIDENTIAL = /(?:mış|miş|muş|müş)(?:t[ıi][mk]?)?(?:\s|[.!?,;:]|$)/i;
 
 /** A tool-less claim of adopting/connecting a resource the owner supplied (no tool exists for it). */
 export function hasResourceAdoptClaim(content: string): boolean {
   if (!content) {
+    return false;
+  }
+  if (TEMPORAL_PRIOR.test(content) || TR_EVIDENTIAL.test(content)) {
     return false;
   }
   const tr = TR_ADOPT_CLAIM.test(content) && TR_RESOURCE_OBJ.test(content);
@@ -179,8 +198,12 @@ export const STALL_REVISE_INSTRUCTION =
   "appropriate tool (generate/delegate/schedule), or reply honestly that you could not do it " +
   "right now and say what you need — no promise, no time estimate.";
 
-const HONEST_TR = "Kusura bakma, bunu şu an yapamadım.";
-const HONEST_EN = "Sorry — I wasn't able to do that just now.";
+// Do not assert that the work was not done — the gate cannot know that.
+// A prior run may have completed the work; claiming otherwise is a lie.
+const HONEST_TR =
+  "Bu konuda bir güncelleme vermeye çalıştım ama emin değilim — lütfen kontrol eder misiniz?";
+const HONEST_EN =
+  "I tried to give you an update on this but I'm not sure of the status — could you check?";
 
 // Sentence-level: either half of the promise is enough to drop the sentence, because
 // "Hemen yenisini hazırlıyorum." and "Birkaç dakika içinde geliyor." each carry only one half.
@@ -199,10 +222,9 @@ function isPromiseSentence(sentence: string): boolean {
 }
 
 /**
- * Last-resort rewrite: strip the promise sentences and state plainly that the work was not
- * done. Any real content the reply carried (an acknowledgement of the complaint, a question)
- * survives — only the lie is removed. Language follows `responseLanguage` when the Ear plan
- * supplied one, else the promise family that matched.
+ * Last-resort rewrite: strip unsupported-claim sentences and replace with an honest
+ * uncertainty marker. Does NOT assert the work was not done — the gate only knows this
+ * run called no tools, not whether a prior run completed the work.
  */
 export function demoteEmptyPromise(content: string, responseLanguage?: string): string {
   const kept = content
