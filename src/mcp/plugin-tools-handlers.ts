@@ -96,7 +96,11 @@ export function createPluginToolsMcpHandlers(tools: AnyAgentTool[]) {
       const toolCallId = `mcp-${randomUUID()}`;
       try {
         const result = await entry.tool.execute(toolCallId, params.arguments ?? {}, signal);
-        const isError = isToolResultError(result);
+        const isError =
+          isToolResultError(result) ||
+          (result !== null &&
+            typeof result === "object" &&
+            (result as { isError?: boolean }).isError === true);
         const rawContent =
           result && typeof result === "object" && "content" in result
             ? (result as { content?: unknown }).content
