@@ -1351,11 +1351,15 @@ export function subscribeEmbeddedAgentSession(params: SubscribeEmbeddedAgentSess
       } as never);
       try {
         const result = await toolParams.execute();
+        const resultIsError =
+          result != null &&
+          typeof result === "object" &&
+          (result as { isError?: boolean }).isError === true;
         await handleToolExecutionEnd(ctx, {
           type: "tool_execution_end",
           toolName: toolParams.toolName,
           toolCallId: toolParams.toolCallId,
-          isError: false,
+          isError: resultIsError,
           executionStarted: true,
           result,
         } as never);

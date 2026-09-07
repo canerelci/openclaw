@@ -127,6 +127,17 @@ describe("extractToolErrorMessage", () => {
 });
 
 describe("isToolResultError", () => {
+  it("honours top-level isError from plugin tool results", () => {
+    expect(
+      isToolResultError({ content: [{ type: "text", text: "Error: 422" }], isError: true }),
+    ).toBe(true);
+    expect(isToolResultError({ content: [{ type: "text", text: "ok" }], isError: false })).toBe(
+      false,
+    );
+    expect(isToolResultError({ content: [{ type: "text", text: "ok" }] })).toBe(false);
+    expect(isToolResultError({ isError: true })).toBe(true);
+  });
+
   it("recognizes returned failures and nonzero exits", () => {
     expect(isToolResultError({ details: { status: "failed" } })).toBe(true);
     expect(isToolResultError({ details: { status: "blocked" } })).toBe(true);
