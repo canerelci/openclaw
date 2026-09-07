@@ -175,16 +175,23 @@ export async function handleOfficeRoomInbound(params: {
     },
     afterRecord: async () => {
       if (pendingMetaTask) {
-        const timeout = new Promise<"timeout">((resolve) =>
-          setTimeout(() => resolve("timeout"), META_TASK_TIMEOUT_MS),
-        );
-        const result = await Promise.race([pendingMetaTask.then(() => "done" as const), timeout]);
-        if (result === "timeout") {
-          console.warn(
-            `[office-room] session meta task timed out after ${META_TASK_TIMEOUT_MS}ms — proceeding to dispatch`,
-          );
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const timeout = new Promise<"timeout">((resolve) => {
+            timer = setTimeout(() => resolve("timeout"), META_TASK_TIMEOUT_MS);
+          });
+          const result = await Promise.race([pendingMetaTask.then(() => "done" as const), timeout]);
+          if (result === "timeout") {
+            console.warn(
+              `[office-room] session meta task timed out after ${META_TASK_TIMEOUT_MS}ms — proceeding to dispatch`,
+            );
+          }
+        } finally {
+          if (timer !== undefined) {
+            clearTimeout(timer);
+          }
+          pendingMetaTask = undefined;
         }
-        pendingMetaTask = undefined;
       }
     },
   });
