@@ -119,6 +119,7 @@ export async function handleOfficeRoomInbound(params: {
     OriginatingTo: replyTarget,
     CommandAuthorized: access.commandAuthorized,
   });
+  let pendingMetaTask: Promise<unknown> | undefined;
   await runtime.channel.inbound.dispatchReply({
     cfg: params.config as OpenClawConfig,
     channel: CHANNEL_ID,
@@ -162,6 +163,15 @@ export async function handleOfficeRoomInbound(params: {
           ? error
           : new Error(`office-room session record failed: ${String(error)}`);
       },
+      trackSessionMetaTask: (task) => {
+        pendingMetaTask = task;
+      },
+    },
+    afterRecord: async () => {
+      if (pendingMetaTask) {
+        await pendingMetaTask;
+        pendingMetaTask = undefined;
+      }
     },
   });
 }

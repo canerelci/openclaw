@@ -156,6 +156,36 @@ describe("Office Room gateway", () => {
     await run;
   });
 
+  it("sends an undelivered notice to the room when a turn fails", async () => {
+    const socket = new FakeSocket();
+    mocks.client.websocket.mockReturnValue(socket);
+    mocks.handleOfficeRoomInbound.mockRejectedValueOnce(
+      new Error(
+        "reply session initialization conflicted for agent:main:office-room:channel:midmen",
+      ),
+    );
+    const abort = new AbortController();
+    const run = startOfficeRoomGatewayAccount(createGatewayContext(abort.signal));
+    await vi.waitFor(() => expect(mocks.client.websocket).toHaveBeenCalledTimes(1));
+
+    socket.emit(
+      "message",
+      frame(roomMessage({ id: 50, mentions: ["Pryva"], body: "@Pryva do something" })),
+    );
+
+    await vi.waitFor(() =>
+      expect(mocks.client.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.stringContaining("Undelivered: msg #50"),
+          mentions: ["Mira"],
+        }),
+      ),
+    );
+
+    abort.abort();
+    await run;
+  });
+
   it("runs an urgent message before routine work already queued behind it", async () => {
     const socket = new FakeSocket();
     mocks.client.websocket.mockReturnValue(socket);
