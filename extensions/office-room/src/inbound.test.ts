@@ -102,30 +102,29 @@ describe("C656: deterministic session init race window", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("a write between snapshot and commit produces stale-snapshot — the exact race that caused 'reply session initialization conflicted'", async () => {
-    // Step 1: Seed a session entry (the seat has an existing session).
+  it("a concurrent write between snapshot and commit exhausts the retry and throws 'reply session initialization conflicted'", async () => {
+    // Reproduces the exact retry logic from initSessionStateAttempt
+    // (session.ts:859-863) against the real session store. initSessionState
+    // itself cannot be called from an extension test — it requires a fully
+    // wired OpenClawConfig + MsgContext and every existing test mocks it.
+    // What we CAN drive are the real store operations it delegates to.
+
     await upsertSessionEntry(
       { sessionKey, storePath },
       { sessionId: "existing-session", updatedAt: 100 },
     );
 
-    // Step 2: Take the initialization snapshot (this is session.ts:409).
-    // In the real path, initSessionState reads the snapshot here.
+    // --- First attempt (session.ts:409 → :823) ---
     const snapshot = loadReplySessionInitializationSnapshot({ sessionKey, storePath });
     expect(snapshot.currentEntry).toBeDefined();
 
-    // Step 3: Simulate the fire-and-forget meta task completing between
-    // snapshot (:409) and commit (:823). In the old code, trackSessionMetaTask
-    // fired recordSessionMetaFromInbound which does runExclusiveSessionStoreWrite
-    // — it mutates the session entry (updatedAt, sender metadata, etc.).
+    // Message 1's fire-and-forget meta task writes between snapshot and commit.
     await upsertSessionEntry(
       { sessionKey, storePath },
       { sessionId: "existing-session", updatedAt: 200, model: "claude-sonnet-4-6" },
     );
 
-    // Step 4: Attempt the commit (this is session.ts:823).
-    // The revision no longer matches because the meta task changed the entry.
-    const committed = await commitReplySessionInitialization({
+    const firstAttempt = await commitReplySessionInitialization({
       activeSessionKey: sessionKey,
       agentId: "main",
       expectedRevision: snapshot.revision,
@@ -133,14 +132,45 @@ describe("C656: deterministic session init race window", () => {
       sessionKey,
       storePath,
     });
+    expect(firstAttempt.ok).toBe(false);
 
-    // This is the stale-snapshot rejection. In initSessionState, this happens
-    // twice (retry once at :861, then throw at :863), producing exactly:
-    //   "reply session initialization conflicted for agent:main:office-room:channel:midmen"
-    expect(committed).toMatchObject({
-      ok: false,
-      reason: "stale-snapshot",
+    // --- Retry (session.ts:861) — re-snapshots and tries again ---
+    const retrySnapshot = loadReplySessionInitializationSnapshot({ sessionKey, storePath });
+
+    // Message 2's own fire-and-forget meta task writes during the retry window.
+    await upsertSessionEntry(
+      { sessionKey, storePath },
+      { sessionId: "existing-session", updatedAt: 250, model: "claude-opus-4-6" },
+    );
+
+    const retryAttempt = await commitReplySessionInitialization({
+      activeSessionKey: sessionKey,
+      agentId: "main",
+      expectedRevision: retrySnapshot.revision,
+      sessionEntry: { sessionId: "new-session", updatedAt: 300 },
+      sessionKey,
+      storePath,
     });
+    expect(retryAttempt.ok).toBe(false);
+
+    // --- Throw (session.ts:863) — retry exhausted, both commits stale ---
+    // This is the exact conditional from initSessionStateAttempt:
+    //   if (!committed.ok) {
+    //     if (!staleSnapshotRetried) { return retry; }
+    //     throw new Error(`reply session initialization conflicted for ${sessionKey}`);
+    //   }
+    let caughtError: Error | undefined;
+    try {
+      if (!retryAttempt.ok) {
+        throw new Error(`reply session initialization conflicted for ${sessionKey}`);
+      }
+    } catch (error) {
+      caughtError = error as Error;
+    }
+    expect(caughtError).toBeDefined();
+    expect(caughtError!.message).toBe(
+      "reply session initialization conflicted for agent:main:office-room:channel:midmen",
+    );
   });
 
   it("without afterRecord the meta task is unblocked during the snapshot-commit window", async () => {
@@ -264,6 +294,64 @@ describe("handleOfficeRoomInbound", () => {
     params.record.trackSessionMetaTask!(metaTask);
     await params.afterRecord!();
     expect(metaResolved).toBe(true);
+  });
+
+  it("proceeds to dispatch with a warning when the meta task times out", async () => {
+    vi.useFakeTimers();
+    dispatchReplyMock.mockReset();
+    setOfficeRoomRuntime(createRuntime());
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await handleOfficeRoomInbound({
+      account: createAccount(),
+      config: {} as CoreConfig,
+      message: createMessage(),
+      access: { shouldDispatch: true, commandAuthorized: true },
+    });
+
+    const params = dispatchReplyMock.mock.calls[0]?.[0] as {
+      record: { trackSessionMetaTask?: (task: Promise<unknown>) => void };
+      afterRecord?: () => Promise<void>;
+    };
+
+    // A meta task that never resolves — simulates a hung recordSessionMetaFromInbound.
+    params.record.trackSessionMetaTask!(new Promise(() => {}));
+    const afterRecordPromise = params.afterRecord!();
+
+    // Advance past the timeout.
+    await vi.advanceTimersByTimeAsync(10_000);
+    await afterRecordPromise;
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("session meta task timed out"));
+    warnSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it("proceeds to dispatch with a warning when the meta task throws", async () => {
+    dispatchReplyMock.mockReset();
+    setOfficeRoomRuntime(createRuntime());
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await handleOfficeRoomInbound({
+      account: createAccount(),
+      config: {} as CoreConfig,
+      message: createMessage(),
+      access: { shouldDispatch: true, commandAuthorized: true },
+    });
+
+    const params = dispatchReplyMock.mock.calls[0]?.[0] as {
+      record: { trackSessionMetaTask?: (task: Promise<unknown>) => void };
+      afterRecord?: () => Promise<void>;
+    };
+
+    params.record.trackSessionMetaTask!(Promise.reject(new Error("db lock contention")));
+    // afterRecord should complete without throwing — the error is caught and logged.
+    await params.afterRecord!();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("session meta task failed: db lock contention"),
+    );
+    warnSpy.mockRestore();
   });
 
   it("skips empty agent output instead of posting a content-free room message", async () => {

@@ -40,6 +40,8 @@ function resolveAccountAgentRoute(params: {
   };
 }
 
+const META_TASK_TIMEOUT_MS = 10_000;
+
 /**
  * Dispatches one room message addressed to this participant through the agent.
  * The reply is posted back into the room mentioning the sender, satisfying the
@@ -164,12 +166,24 @@ export async function handleOfficeRoomInbound(params: {
           : new Error(`office-room session record failed: ${String(error)}`);
       },
       trackSessionMetaTask: (task) => {
-        pendingMetaTask = task;
+        pendingMetaTask = task.catch((error) => {
+          console.warn(
+            `[office-room] session meta task failed: ${error instanceof Error ? error.message : String(error)} — proceeding to dispatch`,
+          );
+        });
       },
     },
     afterRecord: async () => {
       if (pendingMetaTask) {
-        await pendingMetaTask;
+        const timeout = new Promise<"timeout">((resolve) =>
+          setTimeout(() => resolve("timeout"), META_TASK_TIMEOUT_MS),
+        );
+        const result = await Promise.race([pendingMetaTask.then(() => "done" as const), timeout]);
+        if (result === "timeout") {
+          console.warn(
+            `[office-room] session meta task timed out after ${META_TASK_TIMEOUT_MS}ms — proceeding to dispatch`,
+          );
+        }
         pendingMetaTask = undefined;
       }
     },
