@@ -61,6 +61,7 @@ class RoomTurnQueue {
   constructor(
     private readonly run: (message: OfficeRoomMessage) => Promise<void>,
     private readonly onError: (error: unknown) => void,
+    private readonly onIdle?: () => Promise<void>,
   ) {}
 
   enqueue(message: OfficeRoomMessage) {
@@ -80,12 +81,14 @@ class RoomTurnQueue {
       return;
     }
     this.draining = true;
+    let ranTurn = false;
     try {
       while (this.pending.length > 0) {
         const next = this.pending.shift();
         if (!next) {
           break;
         }
+        ranTurn = true;
         try {
           await this.run(next.message);
         } catch (error) {
@@ -94,6 +97,13 @@ class RoomTurnQueue {
       }
     } finally {
       this.draining = false;
+      if (ranTurn && !this.busy && this.onIdle) {
+        try {
+          await this.onIdle();
+        } catch {
+          // Presence is advisory — a failed idle update must not break the queue.
+        }
+      }
     }
   }
 
@@ -174,10 +184,6 @@ export async function startOfficeRoomGatewayAccount(
             `[${account.accountId}] failed to send undelivered notice for msg #${message.id}`,
           );
         }
-      } finally {
-        if (!queue.busy) {
-          await safePresence({ client, account, status: "idle", online: true, log: ctx.log });
-        }
       }
     },
     (error) => {
@@ -186,6 +192,9 @@ export async function startOfficeRoomGatewayAccount(
           error instanceof Error ? error.message : String(error)
         }`,
       );
+    },
+    async () => {
+      await safePresence({ client, account, status: "idle", online: true, log: ctx.log });
     },
   );
 

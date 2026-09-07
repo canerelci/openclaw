@@ -302,6 +302,39 @@ describe("Office Room gateway", () => {
     await run;
   });
 
+  it("returns presence to idle after a turn completes with nothing queued behind it", async () => {
+    const socket = new FakeSocket();
+    mocks.client.websocket.mockReturnValue(socket);
+    mocks.handleOfficeRoomInbound.mockResolvedValueOnce(undefined);
+    const abort = new AbortController();
+    const run = startOfficeRoomGatewayAccount(createGatewayContext(abort.signal));
+    await vi.waitFor(() => expect(mocks.client.websocket).toHaveBeenCalledTimes(1));
+
+    socket.emit(
+      "message",
+      frame(roomMessage({ id: 60, mentions: ["Pryva"], body: "@Pryva hello" })),
+    );
+
+    // After the turn, drain() exits and fires the onIdle callback. Pre-fix, the
+    // idle call was inside the run callback's finally where queue.busy was always
+    // true (draining === true), so presence("idle") was never called.
+    await vi.waitFor(() =>
+      expect(mocks.client.presence).toHaveBeenCalledWith("Pryva", {
+        online: true,
+        status: "idle",
+      }),
+    );
+
+    const presenceCalls = mocks.client.presence.mock.calls.map(
+      (c: [string, { status: string }]) => c[1].status,
+    );
+    // running (turn start) → idle (drain exhausted)
+    expect(presenceCalls).toEqual(["running", "idle"]);
+
+    abort.abort();
+    await run;
+  });
+
   it("skips malformed frames without tearing down the socket", async () => {
     const socket = new FakeSocket();
     mocks.client.websocket.mockReturnValue(socket);
