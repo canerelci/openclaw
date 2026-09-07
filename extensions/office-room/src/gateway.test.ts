@@ -260,6 +260,51 @@ describe("Office Room gateway", () => {
     await run;
   });
 
+  it("deduplicates a message arriving via both backfill and live stream", async () => {
+    const socket = new FakeSocket();
+    mocks.client.websocket.mockReturnValue(socket);
+
+    const overlap = roomMessage({ id: 42, mentions: ["Pryva"], body: "@Pryva overlap" });
+    const liveOnly = roomMessage({ id: 43, mentions: ["Pryva"], body: "@Pryva live-only" });
+
+    mocks.client.messages
+      .mockResolvedValueOnce([roomMessage({ id: 40 })])
+      .mockResolvedValueOnce([overlap]);
+
+    let accessCallCount = 0;
+    mocks.resolveOfficeRoomInboundAccess.mockImplementation(async () => {
+      accessCallCount++;
+      if (accessCallCount === 1) {
+        // During the first backfill item's access check, inject the same message
+        // AND a genuinely new one via the live stream — this is the overlap window.
+        socket.emit("message", frame(overlap));
+        socket.emit("message", frame(liveOnly));
+      }
+      return { shouldDispatch: true, commandAuthorized: true };
+    });
+
+    const abort = new AbortController();
+    const run = startOfficeRoomGatewayAccount(createGatewayContext(abort.signal));
+    await vi.waitFor(() => expect(mocks.client.websocket).toHaveBeenCalledTimes(1));
+
+    socket.emit("open");
+
+    // Wait for both the backfill overlap (#42) and the live-only (#43) to be handled.
+    await vi.waitFor(() => expect(mocks.handleOfficeRoomInbound).toHaveBeenCalledTimes(2));
+
+    // Pre-fix: overlap #42 would be dispatched by BOTH backfill and live stream,
+    // giving 3 calls (42, 42, 43). Post-fix: Set dedup catches the duplicate,
+    // giving exactly 2 calls — each id once. Order depends on which async path
+    // resolves first, so assert on content not sequence.
+    const dispatched = mocks.handleOfficeRoomInbound.mock.calls.map(
+      (c: Array<{ message: OfficeRoomMessage }>) => c[0].message.id,
+    );
+    expect(dispatched.sort()).toEqual([42, 43]);
+
+    abort.abort();
+    await run;
+  });
+
   it("shuts down and marks itself dead on a dismiss naming this participant", async () => {
     const socket = new FakeSocket();
     mocks.client.websocket.mockReturnValue(socket);
