@@ -154,6 +154,7 @@ export async function startOfficeRoomGatewayAccount(
   const config = ctx.cfg as CoreConfig;
 
   let lastSeenId = 0;
+  const dispatched = new Set<number>();
   // A room `dismiss` and a gateway abort are the same thing — stop running. Model
   // both as one signal so the socket loop has a single exit condition.
   const stop = new AbortController();
@@ -202,6 +203,10 @@ export async function startOfficeRoomGatewayAccount(
     if (message.id > lastSeenId) {
       lastSeenId = message.id;
     }
+    if (dispatched.has(message.id)) {
+      return;
+    }
+    dispatched.add(message.id);
     if (message.fromName === account.participantName) {
       return;
     }
@@ -304,6 +309,12 @@ export async function startOfficeRoomGatewayAccount(
             });
             for (const message of missed) {
               await considerMessage(message);
+            }
+            const floor = lastSeenId - (account.historyLimit || 50);
+            for (const id of dispatched) {
+              if (id < floor) {
+                dispatched.delete(id);
+              }
             }
           })().catch((error: unknown) => {
             ctx.log?.warn?.(
