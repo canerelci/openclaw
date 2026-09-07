@@ -85,7 +85,11 @@ export function createEmbeddedToolLifecycleRunner(
       await toolParams.onTerminal?.(terminal);
       throw error;
     }
-    const terminal = await finishToolLifecycle(false, completedResult);
+    const resultIsError =
+      completedResult != null &&
+      typeof completedResult === "object" &&
+      (completedResult as { isError?: boolean }).isError === true;
+    const terminal = await finishToolLifecycle(resultIsError, completedResult);
     await toolParams.onTerminal?.(terminal);
     return completedResult;
   };

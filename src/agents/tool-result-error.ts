@@ -90,6 +90,13 @@ export function readToolResultStatus(result: unknown): string | undefined {
 }
 
 export function isToolResultError(result: unknown): boolean {
+  if (
+    result != null &&
+    typeof result === "object" &&
+    (result as { isError?: boolean }).isError === true
+  ) {
+    return true;
+  }
   const details = readToolResultDetails(result);
   const normalized = readToolResultStatus(result);
   const ok = details ? readToolErrorField(details, "ok") : undefined;
