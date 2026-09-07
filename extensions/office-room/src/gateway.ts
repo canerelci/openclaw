@@ -154,6 +154,8 @@ export async function startOfficeRoomGatewayAccount(
   const config = ctx.cfg as CoreConfig;
 
   let lastSeenId = 0;
+  // Unbounded between reconnects; pruned to historyLimit after each backfill.
+  // Typical bound: reconnect frequency × message rate — low hundreds, a few KB.
   const dispatched = new Set<number>();
   // A room `dismiss` and a gateway abort are the same thing — stop running. Model
   // both as one signal so the socket loop has a single exit condition.
