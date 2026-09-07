@@ -22,6 +22,11 @@ describe("hasEmptyPromise", () => {
     ["tr future + immediacy", "Yeni görseli hazırlayacağım, birkaç dakikaya sende olur."],
     ["en progressive + immediacy", "I'm preparing a new one, it'll be there in a few minutes."],
     ["en future + immediacy", "I'll fix the logo right away."],
+    // Previously dead stems: üret and çiz now match after Unicode boundary fix.
+    ["tr üret (was dead)", "Hemen üretiyorum, birkaç dakika içinde geliyor."],
+    ["tr çiz (was dead)", "Hemen çiziyorum, birkaç dakika içinde geliyor."],
+    // şimdi as immediacy marker was dead; now matches.
+    ["tr şimdi (was dead)", "Gönderiyorum şimdi, birazdan geliyor."],
   ])("flags %s", (_label, text) => {
     expect(hasEmptyPromise(text)).toBe(true);
   });
@@ -52,6 +57,8 @@ describe("hasResourceAdoptClaim", () => {
     ["tr configure account", "Hesabı ayarladım, artık ben yönetiyorum."],
     ["en manage account", "Great, I'll manage the account with this token now."],
     ["en connected", "I've connected the bot to your channel."],
+    // şifre was dead due to \b; now matches with Unicode boundary.
+    ["tr şifre (was dead)", "Şifreyi ayarladım, artık çalışıyor."],
   ])("flags %s", (_label, text) => {
     expect(hasResourceAdoptClaim(text)).toBe(true);
   });
@@ -63,6 +70,25 @@ describe("hasResourceAdoptClaim", () => {
     ["en no resource", "I'll manage the schedule for next week."],
     ["empty", ""],
   ])("does not flag %s", (_label, text) => {
+    expect(hasResourceAdoptClaim(text)).toBe(false);
+  });
+
+  it.each([
+    ["tr dün", "Onu dün ayarladım, token çalışıyor."],
+    ["tr geçen hafta", "Evet, geçen hafta hesabı bağladım."],
+    ["tr daha önce", "Bunu daha önce halletmiştim."],
+    ["en yesterday", "I connected the account yesterday."],
+    ["en last week", "I set up the token last week."],
+    ["en already", "I already configured the channel."],
+  ])("does not flag prior-turn reference: %s", (_label, text) => {
+    expect(hasResourceAdoptClaim(text)).toBe(false);
+  });
+
+  it.each([
+    ["tr -mış evidential", "Hesap ayarlanmış, token çalışıyor."],
+    ["tr -miştim", "Bunu daha önce halletmiştim."],
+    ["tr -muş", "Kanal kurulmuş görünüyor."],
+  ])("does not flag evidential mood: %s", (_label, text) => {
     expect(hasResourceAdoptClaim(text)).toBe(false);
   });
 });
@@ -113,26 +139,26 @@ describe("isStallingTurn", () => {
 });
 
 describe("demoteEmptyPromise", () => {
-  it("strips the promise and states the truth, keeping real content", () => {
+  it("strips the promise and adds uncertainty marker, keeping real content", () => {
     const out = demoteEmptyPromise(PROD_EMPTY_PROMISE, "tr");
     expect(out).not.toMatch(/hazırlıyorum|birkaç dakika/i);
-    expect(out).toContain("Kusura bakma, bunu şu an yapamadım.");
+    expect(out).toContain("emin değilim");
   });
 
-  it("falls back to the honest line alone when the reply was nothing but promise", () => {
+  it("falls back to the uncertainty marker alone when the reply was nothing but promise", () => {
     expect(demoteEmptyPromise("Hemen hazırlıyorum.", "tr")).toBe(
-      "Kusura bakma, bunu şu an yapamadım.",
+      "Bu konuda bir güncelleme vermeye çalıştım ama emin değilim — lütfen kontrol eder misiniz?",
     );
   });
 
   it("honours the Ear plan response language", () => {
     expect(demoteEmptyPromise("Hemen hazırlıyorum.", "en")).toBe(
-      "Sorry — I wasn't able to do that just now.",
+      "I tried to give you an update on this but I'm not sure of the status — could you check?",
     );
   });
 
   it("infers Turkish from the matched promise when no language is supplied", () => {
-    expect(demoteEmptyPromise("Hemen hazırlıyorum.")).toContain("Kusura bakma");
+    expect(demoteEmptyPromise("Hemen hazırlıyorum.")).toContain("emin değilim");
   });
 
   it("keeps the acknowledgement sentence that carries no promise", () => {
