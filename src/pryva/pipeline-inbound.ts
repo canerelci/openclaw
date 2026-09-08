@@ -752,16 +752,24 @@ export function buildEarPlanBlock(entry: PipelineInboundContext): string | null 
 export async function onBeforePromptBuild(
   pipeline: PryvaPipeline,
   _event: PluginHookBeforePromptBuildEvent,
+  ctx: PluginHookAgentContext,
 ): Promise<PluginHookBeforePromptBuildResult | void> {
-  let best = pipeline.ctxStore.findLatest();
+  // T500: scope the ear-plan lookup to the run's own conversation. A self-turn
+  // (heartbeat/cron/scheduled_todo) has no sender, so ANY ear plan it finds via
+  // findLatest() belongs to a DIFFERENT conversation — a cross-conversation
+  // context leak. Sender-bearing runs use findByRecipient (exact match);
+  // senderless runs skip the lookup entirely (no inbound → no ear plan to inject).
+  const senderId = ctx.senderId;
+  const channelId = ctx.channelId ?? ctx.channel;
+  let best = senderId ? (pipeline.ctxStore.findByRecipient(senderId, channelId) ?? null) : null;
 
-  // If Ear is in flight for the latest turn, wait briefly (up to ~15s).
+  // If Ear is in flight for the matched turn, wait briefly (up to ~15s).
   // A quota-refused ear never sets earPlan (backend returns the refusal, not a
   // plan), so without the quotaRefused conjunct this loop spins the full 15s.
   if (best && best.earStarted && !best.earPlan && !best.quotaRefused) {
     for (let i = 0; i < 150 && best && !best.earPlan && !best.quotaRefused; i++) {
       await sleep(100);
-      best = pipeline.ctxStore.findLatest();
+      best = senderId ? (pipeline.ctxStore.findByRecipient(senderId, channelId) ?? null) : null;
     }
   }
 

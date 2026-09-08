@@ -30,7 +30,12 @@ function makeEntry(overrides: Partial<PipelineInboundContext> = {}): PipelineInb
   };
 }
 
-function createPipeline(findLatestFn: () => PipelineInboundContext | null) {
+// T500: ctx with senderId so the scoped findByRecipient path is exercised.
+const SENDER_CTX = { senderId: "user-1", channelId: "telegram" } as never;
+
+function createPipeline(
+  findByRecipientFn: (to?: string, channel?: string) => PipelineInboundContext | null,
+) {
   return {
     cfg: {
       backendUrl: "http://localhost:0",
@@ -38,8 +43,8 @@ function createPipeline(findLatestFn: () => PipelineInboundContext | null) {
       pipeline: { disableEar: false },
     },
     ctxStore: {
-      findByRecipient: () => undefined,
-      findLatest: findLatestFn,
+      findByRecipient: findByRecipientFn,
+      findLatest: vi.fn(),
       key: () => "",
       set: () => {},
       cleanupStale: () => {},
@@ -75,7 +80,7 @@ describe("onBeforePromptBuild ear wait — quotaRefused terminator (T497)", () =
       quotaRefused: { detail: "Account quota exceeded.", delivered: true },
     });
     const pipeline = createPipeline(() => entry);
-    await onBeforePromptBuild(pipeline, {} as never);
+    await onBeforePromptBuild(pipeline, {} as never, SENDER_CTX);
     expect((mockSleep as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
   });
 
@@ -89,9 +94,9 @@ describe("onBeforePromptBuild ear wait — quotaRefused terminator (T497)", () =
       }
       return entry;
     });
-    await onBeforePromptBuild(pipeline, {} as never);
+    await onBeforePromptBuild(pipeline, {} as never, SENDER_CTX);
     // Exactly 2 sleep calls: the loop iterated twice before the 3rd
-    // findLatest mutated quotaRefused and the loop condition exited.
+    // findByRecipient mutated quotaRefused and the loop condition exited.
     // Pre-fix code would spin all 150 iterations.
     expect((mockSleep as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
   });
@@ -106,14 +111,14 @@ describe("onBeforePromptBuild ear wait — quotaRefused terminator (T497)", () =
       }
       return entry;
     });
-    await onBeforePromptBuild(pipeline, {} as never);
+    await onBeforePromptBuild(pipeline, {} as never, SENDER_CTX);
     expect((mockSleep as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
   });
 
   it("case 4: ear not started — loop is NOT entered", async () => {
     const entry = makeEntry({ earStarted: false, earPlan: null });
     const pipeline = createPipeline(() => entry);
-    await onBeforePromptBuild(pipeline, {} as never);
+    await onBeforePromptBuild(pipeline, {} as never, SENDER_CTX);
     expect((mockSleep as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
   });
 });

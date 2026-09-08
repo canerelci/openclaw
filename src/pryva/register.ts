@@ -83,7 +83,7 @@ export function registerPryvaPipelineHooks(api: OpenClawPluginApi, cfg: OpenClaw
   // yields: identity → [TODAY] → [CURRENT TIME] + Ear plan → conversation.
   // Native registers after external plugins, so equal priority would append us
   // AFTER history — never share prio 10 with the flavor history hook.
-  api.on("before_prompt_build", (event) => onBeforePromptBuild(pipeline, event), {
+  api.on("before_prompt_build", (event, ctx) => onBeforePromptBuild(pipeline, event, ctx), {
     priority: 15,
   });
   api.on("message_sending", (event, ctx) => onMessageSending(pipeline, event, ctx));
