@@ -147,18 +147,50 @@ describe("quota gate — fail closed (T493)", () => {
     );
   });
 
-  it("case 4: ear not yet started (race) — refusal arrives late, still BLOCKS", async () => {
+  it("case 4: ear in flight (race) — refusal arrives MID-LOOP, blocks", async () => {
     const { event, ctx } = uniqueCase();
-    const entry = makeEntry({
-      earStarted: false,
-      quotaRefused: { detail: "Account quota exceeded.", delivered: true },
-    });
-    const pipeline = createPipeline(entry);
+    const entry = makeEntry({ earStarted: false, earPlan: null });
+    let calls = 0;
+    const pipeline = {
+      cfg: {
+        backendUrl: "http://localhost:0",
+        internalToken: "test",
+        pipeline: { disableEar: false },
+      },
+      ctxStore: {
+        findByRecipient: () => {
+          calls++;
+          if (calls >= 3) {
+            entry.quotaRefused = { detail: "Account quota exceeded.", delivered: true };
+          }
+          return entry;
+        },
+        findLatest: () => entry,
+        key: () => "",
+        set: () => {},
+        cleanupStale: () => {},
+      },
+      rawCfg: {},
+      registry: {
+        bindFlow: vi.fn(),
+        getFlowForRun: () => null,
+        resolve: () => null,
+        consumeExternalFlow: () => null,
+        consumeExternalFlowBySession: () => null,
+        consumeSourceHint: () => null,
+        consumeSourceHintBySession: () => null,
+      },
+      log: { warn: vi.fn(), debug: vi.fn(), info: vi.fn(), error: vi.fn() },
+      scheduleSessionTurn: vi.fn(),
+    } as never;
     const result = await onBeforeAgentRun(pipeline, event, ctx);
     expect(result).toMatchObject({
       outcome: "block",
       category: "quota",
     });
+    // The loop must have iterated — sleep was called at least once before
+    // quotaRefused appeared on the 3rd findByRecipient call.
+    expect((mockSleep as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
   it("case 5: quota refusal does NOT stall on ear wait loop (earPlan never set)", async () => {
