@@ -146,4 +146,38 @@ describe("quota gate — fail closed (T493)", () => {
       }),
     );
   });
+
+  it("case 4: ear not yet started (race) — refusal arrives late, still BLOCKS", async () => {
+    const { event, ctx } = uniqueCase();
+    const entry = makeEntry({
+      earStarted: false,
+      quotaRefused: { detail: "Account quota exceeded.", delivered: true },
+    });
+    const pipeline = createPipeline(entry);
+    const result = await onBeforeAgentRun(pipeline, event, ctx);
+    expect(result).toMatchObject({
+      outcome: "block",
+      category: "quota",
+    });
+  });
+
+  it("case 5: quota refusal does NOT stall on ear wait loop (earPlan never set)", async () => {
+    const { event, ctx } = uniqueCase();
+    const entry = makeEntry({
+      earStarted: true,
+      earPlan: null,
+      quotaRefused: { detail: "Account quota exceeded.", delivered: true },
+    });
+    const pipeline = createPipeline(entry);
+    const result = await onBeforeAgentRun(pipeline, event, ctx);
+    expect(result).toMatchObject({
+      outcome: "block",
+      category: "quota",
+    });
+    // The ear wait loop should have exited immediately on quotaRefused,
+    // not spun 150 iterations. sleep is mocked so we check call count.
+    // With the fix, the loop condition includes !entry.quotaRefused, so
+    // it never enters (quotaRefused is already set).
+    expect((mockSleep as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThan(5);
+  });
 });

@@ -120,13 +120,16 @@ export async function onBeforeAgentRun(
     };
   }
 
-  // Ear role-scope gate for messages that were too long for inbound_claim. Wait
-  // for the same Ear call the prompt stage already consumes — no second LLM
-  // classification. message_received delivers the LLM-written one-line rejection;
-  // only block the expensive main turn after that channel delivery succeeds.
+  // Ear wait loop: wait for the ear to settle (earPlan OR quotaRefused) when an
+  // ear run is EXPECTED (content present, ear not disabled). Enter on expectation,
+  // not on earStarted — earStarted can still be false if this hook fires before
+  // runEar sets it (race between fire-and-forget message_received and the agent
+  // run scheduler). Terminate on EITHER outcome so a quota refusal (which never
+  // sets earPlan) does not spin the full 15s.
   let entry = pipeline.ctxStore.findByRecipient(sender, channel);
-  if (entry?.earStarted && !entry.earPlan) {
-    for (let i = 0; i < 150 && entry && !entry.earPlan; i++) {
+  const earExpected = !!prompt && !pipeline.cfg.pipeline.disableEar;
+  if (earExpected && entry && !entry.earPlan && !entry.quotaRefused) {
+    for (let i = 0; i < 150 && entry && !entry.earPlan && !entry.quotaRefused; i++) {
       await sleep(100);
       entry = pipeline.ctxStore.findByRecipient(sender, channel);
     }
