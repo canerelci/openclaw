@@ -188,9 +188,9 @@ describe("quota gate — fail closed (T493)", () => {
       outcome: "block",
       category: "quota",
     });
-    // The loop must have iterated — sleep was called at least once before
-    // quotaRefused appeared on the 3rd findByRecipient call.
-    expect((mockSleep as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(1);
+    // Exactly 2 iterations: sleep+re-read twice before the 3rd findByRecipient
+    // mutates quotaRefused. Pre-fix code spins all 150 → 150 sleeps.
+    expect((mockSleep as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
   });
 
   it("case 5: quota refusal does NOT stall on ear wait loop (earPlan never set)", async () => {
