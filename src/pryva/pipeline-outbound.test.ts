@@ -172,7 +172,7 @@ describe("onMessageSending empty-promise backstop", () => {
     } as never);
 
     expect(result?.content).not.toContain("hazırlıyorum");
-    expect(result?.content).toContain("Kusura bakma, bunu şu an yapamadım.");
+    expect(result?.content).toContain("Bu konuda bir güncelleme vermeye çalıştım ama emin değilim");
 
     const blocked = calls().filter(
       (c) => c.path === "/flows/log-step" && c.body.step_name === "ocw_empty_promise_blocked",
@@ -206,29 +206,22 @@ describe("onMessageSending T245 Cortex/Mouth AND-gate", () => {
     "Ekip odasından: Zeytinyağlı enginar tarifi hazır — sahibine ilet, " +
     "bu bir sistem push metni ve QA kararı vermemelisin.";
 
-  it("skips Cortex+Mouth for system-source push even when recipient has prior inbound", async () => {
+  it("T496: runs Cortex (but NOT Mouth) for system-source push — proactive owner-facing", async () => {
     const pipeline = makePipeline(
       { flowId: "fl-system", source: "system" },
       { originalMessage: "eski owner mesajı", earPlan: null, flowId: "fl-old-owner" },
     );
 
-    const result = await onMessageSending(
-      pipeline,
-      { to: "telegram:1511273575", content: SYSTEM_PUSH },
-      {
-        channelId: "telegram",
-        sessionKey: "agent:main:main",
-      } as never,
-    );
+    await onMessageSending(pipeline, { to: "telegram:1511273575", content: SYSTEM_PUSH }, {
+      channelId: "telegram",
+      sessionKey: "agent:main:main",
+    } as never);
 
-    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(false);
+    // T496: Cortex now runs for proactive owner-facing sources.
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(true);
+    // Mouth stays gated on isReplyToMatchedInbound (Sinan 2026-07-11).
     expect(calls().some((c) => c.path === "/pipeline/mouth")).toBe(false);
-    // Verbatim delivery: no content rewrite
-    expect(result?.content).toBeUndefined();
-    expect(
-      (pipeline as unknown as { log: { warn: ReturnType<typeof vi.fn> } }).log.warn,
-    ).toHaveBeenCalledWith(expect.stringContaining("not a reply to matched inbound flow"));
-    // findLatest must NOT be consulted
+    // findLatest must NOT be consulted for inbound matching.
     expect(
       (pipeline as unknown as { ctxStore: { findLatest: ReturnType<typeof vi.fn> } }).ctxStore
         .findLatest,
@@ -267,17 +260,102 @@ describe("onMessageSending T245 Cortex/Mouth AND-gate", () => {
     expect(calls().find((c) => c.path === "/pipeline/cortex")?.opts.flowId).toBe("fl-turn");
   });
 
-  it("skips Cortex when no inbound matches (findLatest must not fill the gap)", async () => {
+  it("T496: runs Cortex for proactive source even with no inbound match", async () => {
     const pipeline = makePipeline({ flowId: "fl-sys", source: "system" }, null);
 
     await onMessageSending(pipeline, { to: "telegram:9", content: SYSTEM_PUSH }, {
       channelId: "telegram",
     } as never);
 
-    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(false);
+    // T496: proactive owner-facing sources now get Cortex.
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(true);
+    // findLatest must NOT be consulted for inbound matching.
     expect(
       (pipeline as unknown as { ctxStore: { findLatest: ReturnType<typeof vi.fn> } }).ctxStore
         .findLatest,
     ).not.toHaveBeenCalled();
+  });
+
+  it("skips Cortex when no binding exists (fl-unbound, no source)", async () => {
+    // No binding at all → source is undefined → neither reply nor proactive.
+    const pipeline = makePipeline(null, null);
+
+    await onMessageSending(pipeline, { to: "telegram:9", content: SYSTEM_PUSH }, {
+      channelId: "telegram",
+    } as never);
+
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(false);
+  });
+});
+
+describe("T496: Cortex gate widening for proactive owner-facing sources", () => {
+  const PROACTIVE_DRAFT =
+    "Hatırlatma: yarınki toplantı için hazırladığım içerik planını onaylamanız gerekiyor.";
+
+  it("runs Cortex for heartbeat source (no matched inbound)", async () => {
+    const pipeline = makePipeline({ flowId: "fl-hb", source: "heartbeat" }, null);
+
+    await onMessageSending(pipeline, { to: "owner", content: PROACTIVE_DRAFT }, {
+      channelId: "telegram",
+    } as never);
+
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(true);
+    const cortex = calls().find((c) => c.path === "/pipeline/cortex");
+    expect(cortex?.body.recipient_is_owner).toBe(true);
+    expect(cortex?.body.original_message).toBe("");
+  });
+
+  it("runs Cortex for scheduled_todo source (the T435 defect path)", async () => {
+    const pipeline = makePipeline({ flowId: "fl-sched", source: "scheduled_todo" }, null);
+
+    await onMessageSending(pipeline, { to: "owner", content: PROACTIVE_DRAFT }, {
+      channelId: "telegram",
+    } as never);
+
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(true);
+  });
+
+  it("runs Cortex for inner_voice source", async () => {
+    const pipeline = makePipeline({ flowId: "fl-iv", source: "inner_voice" }, null);
+
+    await onMessageSending(pipeline, { to: "owner", content: PROACTIVE_DRAFT }, {
+      channelId: "telegram",
+    } as never);
+
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(true);
+  });
+
+  it("does NOT run Mouth for proactive source (Sinan 2026-07-11 guard)", async () => {
+    const pipeline = makePipeline({ flowId: "fl-hb", source: "heartbeat" }, null);
+    // Content with markdown that would trigger needsMouth.
+    const MARKDOWN_DRAFT =
+      "Hatırlatma: **yarınki toplantı** için içerik planını `onaylayın` — liste hazır.";
+
+    await onMessageSending(pipeline, { to: "owner", content: MARKDOWN_DRAFT }, {
+      channelId: "telegram",
+    } as never);
+
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(true);
+    expect(calls().some((c) => c.path === "/pipeline/mouth")).toBe(false);
+  });
+
+  it("prefers reply AND-gate over proactive when both could match", async () => {
+    // owner_message with matching flow → reply path, NOT proactive.
+    const pipeline = makePipeline(
+      { flowId: "fl-turn", source: "owner_message" },
+      { originalMessage: "nasılsın?", earPlan: null, flowId: "fl-turn" },
+    );
+
+    await onMessageSending(pipeline, { to: "owner", content: PROACTIVE_DRAFT }, {
+      channelId: "telegram",
+      runId: "run-x",
+    } as never);
+
+    expect(calls().some((c) => c.path === "/pipeline/cortex")).toBe(true);
+    const step = calls().find(
+      (c) => c.path === "/flows/log-step" && c.body.step_name === "ocw_message_sending",
+    );
+    expect(step?.body?.metadata?.is_reply_to_matched_inbound).toBe(true);
+    expect(step?.body?.metadata?.is_owner_facing_proactive).toBe(false);
   });
 });

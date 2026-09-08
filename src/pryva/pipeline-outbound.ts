@@ -41,6 +41,24 @@ import {
 // Cortex QA ("does this reply address the question?") is only meaningful for these.
 const MESSAGE_REPLY_SOURCES = new Set(["owner_message", "contact_message", "internal_chat"]);
 
+// T496: proactive/self-turn sources whose outbound reaches the owner WITHOUT a
+// matched inbound. The T245 AND-gate's matchedFlowId conjunct fails for all of
+// these (no inbound to match), so they never reach Cortex via the reply path.
+// Cortex judges the draft on its own merit (false completion, stalling, tool
+// evidence) — the backend handles the absent original_message at pipeline.py:2628.
+const CORTEX_PROACTIVE_SOURCES = new Set([
+  "heartbeat",
+  "cron",
+  "followup",
+  "system",
+  "inner_voice",
+  "scheduled_todo",
+  "platform",
+  "ncw_completion",
+  "subagent",
+  "tool_completion",
+]);
+
 function matchInboundContext(
   pipeline: PryvaPipeline,
   to: string | undefined,
@@ -110,8 +128,7 @@ export async function onMessageSending(
   // T245 AND-gate (design of record): run Cortex+Mouth ONLY when BOTH
   // (1) binding.source is a genuine inbound-message source, AND
   // (2) the outbound's flow is the same as the matched inbound's flow.
-  // System/CLI/relay/inner_voice/heartbeat pushes fail one or both → skip QA,
-  // deliver sanitized content verbatim (never cancel). Fail-open toward delivery.
+  // Fail-open toward delivery — never cancel.
   const isReplyToMatchedInbound = Boolean(
     binding?.source &&
     MESSAGE_REPLY_SOURCES.has(binding.source) &&
@@ -119,6 +136,13 @@ export async function onMessageSending(
     binding.flowId &&
     matchedFlowId === binding.flowId,
   );
+
+  // T496: proactive owner-facing source — Cortex reviews even without an inbound
+  // match. Mouth stays gated on isReplyToMatchedInbound (Sinan 2026-07-11).
+  const isOwnerFacingProactive = Boolean(
+    binding?.source && CORTEX_PROACTIVE_SOURCES.has(binding.source) && !isReplyToMatchedInbound,
+  );
+  const shouldRunCortex = isReplyToMatchedInbound || isOwnerFacingProactive;
 
   if (isErrorReply) {
     const responseLanguage =
@@ -162,36 +186,29 @@ export async function onMessageSending(
       metadata: {
         is_ack: isAck,
         length: content.length,
-        // T245 AND-gate: Cortex only for genuine inbound replies (source + flow match).
         cortex:
-          !isAck &&
-          !pipeline.cfg.pipeline.disableCortex &&
-          content.length > 40 &&
-          isReplyToMatchedInbound,
+          !isAck && !pipeline.cfg.pipeline.disableCortex && content.length > 40 && shouldRunCortex,
         channel: channel ?? null,
         to: to ?? null,
         is_reply_to_matched_inbound: isReplyToMatchedInbound,
+        is_owner_facing_proactive: isOwnerFacingProactive,
         binding_source: binding?.source ?? null,
       },
     },
   );
 
-  if (
-    !isAck &&
-    !pipeline.cfg.pipeline.disableCortex &&
-    content.length > 40 &&
-    isReplyToMatchedInbound
-  ) {
+  if (!isAck && !pipeline.cfg.pipeline.disableCortex && content.length > 40 && shouldRunCortex) {
     const toolEvidence = getToolEvidence(runId);
     const toolCallsCount = getToolCallsCount(runId);
-    const recipientIsOwner = earPlan?.is_owner === true || binding?.source === "owner_message";
+    // Proactive sources always deliver to the owner; reply path uses earPlan.
+    const recipientIsOwner =
+      isOwnerFacingProactive || earPlan?.is_owner === true || binding?.source === "owner_message";
     const payload: Record<string, unknown> = {
       draft: content,
       original_message: original,
       channel: channel ?? "unknown",
       recipient_id: to ?? null,
       recipient_is_owner: recipientIsOwner,
-      // H3: always send count + evidence (not only when draft is "vague")
       tool_calls_count: toolCallsCount,
       tool_evidence: toolEvidence.map((t) => ({
         name: t.name,
@@ -216,10 +233,9 @@ export async function onMessageSending(
     }
   } else if (!isAck && content.length > 40 && pipeline.cfg.pipeline.disableCortex) {
     pipeline.log.warn(`cortex skipped (disabled) for outbound to ${to ?? "?"} [${flowId}]`);
-  } else if (!isAck && content.length > 40 && !isReplyToMatchedInbound) {
-    // System push / proactive / flow-mismatched outbound: skip Cortex, deliver verbatim.
+  } else if (!isAck && content.length > 40 && !shouldRunCortex) {
     pipeline.log.warn(
-      `cortex skipped (not a reply to matched inbound flow) to ${to ?? "?"} ` +
+      `cortex skipped (no matched inbound and not a proactive source) to ${to ?? "?"} ` +
         `source=${binding?.source ?? "none"} matched=${matchedFlowId ?? "none"} [${flowId}]`,
     );
   }
