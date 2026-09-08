@@ -756,8 +756,10 @@ export async function onBeforePromptBuild(
   let best = pipeline.ctxStore.findLatest();
 
   // If Ear is in flight for the latest turn, wait briefly (up to ~15s).
-  if (best && best.earStarted && !best.earPlan) {
-    for (let i = 0; i < 150 && best && !best.earPlan; i++) {
+  // A quota-refused ear never sets earPlan (backend returns the refusal, not a
+  // plan), so without the quotaRefused conjunct this loop spins the full 15s.
+  if (best && best.earStarted && !best.earPlan && !best.quotaRefused) {
+    for (let i = 0; i < 150 && best && !best.earPlan && !best.quotaRefused; i++) {
       await sleep(100);
       best = pipeline.ctxStore.findLatest();
     }
