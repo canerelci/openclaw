@@ -65,3 +65,64 @@ export async function pryvaFetch(
     clearTimeout(timeout);
   }
 }
+
+export type PryvaQuotaRefusal = { quotaRefused: true; status: 402; detail: string };
+
+/**
+ * Quota-aware fetch for callers that must distinguish "backend said 402" from
+ * "backend unreachable". Returns the parsed body on 2xx, a PryvaQuotaRefusal on
+ * 402, or null on any other failure (network, non-2xx, parse). Only the ear
+ * caller uses this — every other caller is fail-open and uses pryvaFetch.
+ */
+export async function pryvaFetchQuotaAware(
+  cfg: ResolvedPryvaConfig,
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+  opts: PryvaFetchOptions = {},
+): Promise<unknown | PryvaQuotaRefusal> {
+  const url = `${cfg.backendUrl}/api/v1${path.startsWith("/") ? path : `/${path}`}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${cfg.internalToken}`,
+    };
+    if (opts.flowId) {
+      headers["X-Flow-Id"] = opts.flowId;
+    }
+    const response = await globalThis.fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (response.status === 402) {
+      let detail = "Account quota exceeded. Please check your dashboard.";
+      try {
+        const errorBody = (await response.json()) as { detail?: string };
+        if (typeof errorBody?.detail === "string") {
+          detail = errorBody.detail;
+        }
+      } catch {
+        // FastAPI always returns JSON for HTTPException, but degrade gracefully.
+      }
+      return { quotaRefused: true, status: 402, detail } satisfies PryvaQuotaRefusal;
+    }
+    if (!response.ok) {
+      log.debug(`backend ${method} ${path} -> ${response.status}`);
+      return null;
+    }
+    const text = await response.text();
+    if (!text) {
+      return null;
+    }
+    return JSON.parse(text) as unknown;
+  } catch (err) {
+    log.debug(`backend ${method} ${path} failed: ${String(err)}`);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}

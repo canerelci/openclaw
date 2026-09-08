@@ -19,7 +19,7 @@ import type {
   PluginHookMessageContext,
   PluginHookMessageReceivedEvent,
 } from "../plugins/types.js";
-import { pryvaFetch } from "./backend.js";
+import { pryvaFetch, pryvaFetchQuotaAware, type PryvaQuotaRefusal } from "./backend.js";
 import type { PipelineInboundContext } from "./context.js";
 import { generateFlowId, normalizeTrigger, type FlowSource } from "./flow-registry.js";
 import { cancelInnerVoice, parseInnerVoiceDirective, scheduleInnerVoice } from "./inner-voice.js";
@@ -145,12 +145,38 @@ export async function onBeforeAgentRun(
       };
     }
   }
+
+  // Quota gate (T366): the ear returned 402 and the refusal was delivered to the
+  // owner's channel. Block the agent run — the owner already has the refusal
+  // sentence and no LLM work should proceed.
+  if (entry?.quotaRefused) {
+    for (let i = 0; i < 30 && entry.quotaRefused.delivered === undefined; i++) {
+      await sleep(50);
+    }
+    if (entry.quotaRefused.delivered === true) {
+      pipeline.log.debug(`blocked quota-refused inbound run (channel=${channel} sender=${sender})`);
+      return {
+        outcome: "block",
+        reason: "pryva: quota exceeded — refusal delivered to owner",
+        category: "quota",
+      };
+    }
+  }
+}
+
+function isQuotaRefusal(result: unknown): result is PryvaQuotaRefusal {
+  return (
+    result !== null &&
+    typeof result === "object" &&
+    (result as PryvaQuotaRefusal).quotaRefused === true &&
+    (result as PryvaQuotaRefusal).status === 402
+  );
 }
 
 /** Run the Ear analysis stage and store the plan on the context. */
 async function runEar(pipeline: PryvaPipeline, entry: PipelineInboundContext): Promise<void> {
   entry.earStarted = true;
-  const plan = await pryvaFetch(
+  const result = await pryvaFetchQuotaAware(
     pipeline.cfg,
     "POST",
     "/pipeline/ear",
@@ -162,8 +188,12 @@ async function runEar(pipeline: PryvaPipeline, entry: PipelineInboundContext): P
     },
     { flowId: entry.flowId },
   );
-  if (plan && typeof plan === "object") {
-    entry.earPlan = plan as Record<string, unknown>;
+  if (isQuotaRefusal(result)) {
+    entry.quotaRefused = { detail: result.detail };
+    return;
+  }
+  if (result && typeof result === "object") {
+    entry.earPlan = result as Record<string, unknown>;
   }
 }
 
@@ -386,6 +416,28 @@ export async function onMessageReceived(
     void (async () => {
       try {
         await runEar(pipeline, entry);
+
+        if (entry.quotaRefused) {
+          logFlowStep(
+            pipeline,
+            { flowId },
+            {
+              step_name: "quota_refused",
+              step_type: "action",
+              status: "ok",
+              output_text: entry.quotaRefused.detail.slice(0, 200),
+              metadata: { quota_guard: true, channel, sender: from },
+            },
+          );
+          entry.quotaRefused.delivered = await deliverFastAck(pipeline, {
+            to: from,
+            content: entry.quotaRefused.detail,
+            channel,
+            sessionKey,
+          });
+          return;
+        }
+
         const intent = typeof entry.earPlan?.intent === "string" ? entry.earPlan.intent : "";
         pipeline.log.debug(`ear intent=${intent} [${flowId}]`);
 

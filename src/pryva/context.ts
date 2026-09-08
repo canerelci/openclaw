@@ -19,6 +19,9 @@ export type PipelineInboundContext = {
   /** Set only for an Ear-generated out-of-scope direct reply. `true` means the
    * channel accepted it and before_agent_run may safely skip the main agent. */
   scopeReplyDelivered?: boolean;
+  /** Set when the backend returned 402 on the ear call — quota exceeded. The
+   * detail string is the same human-readable refusal route A delivers. */
+  quotaRefused?: { detail: string; delivered?: boolean };
   timestamp: number;
 };
 
