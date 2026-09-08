@@ -146,21 +146,40 @@ export async function onBeforeAgentRun(
     }
   }
 
-  // Quota gate (T366): the ear returned 402 and the refusal was delivered to the
-  // owner's channel. Block the agent run — the owner already has the refusal
-  // sentence and no LLM work should proceed.
+  // Quota gate (T366/T493): the ear returned 402 — block the agent run
+  // unconditionally. A quota refusal is a deliberate decision to stop; timing out
+  // on delivery confirmation is not evidence the decision was wrong. Fail CLOSED:
+  // block on anything other than confirmed successful delivery, and log the
+  // undelivered case as an alarm so it is never swallowed silently.
   if (entry?.quotaRefused) {
     for (let i = 0; i < 30 && entry.quotaRefused.delivered === undefined; i++) {
       await sleep(50);
     }
-    if (entry.quotaRefused.delivered === true) {
-      pipeline.log.debug(`blocked quota-refused inbound run (channel=${channel} sender=${sender})`);
-      return {
-        outcome: "block",
-        reason: "pryva: quota exceeded — refusal delivered to owner",
-        category: "quota",
-      };
+    const delivered = entry.quotaRefused.delivered === true;
+    if (!delivered) {
+      const reason = entry.quotaRefused.delivered === false ? "send_failed" : "timeout";
+      pipeline.log.warn(
+        `quota refusal NOT delivered (${reason}), blocking anyway (channel=${channel} sender=${sender})`,
+      );
+      logFlowStep(
+        pipeline,
+        { flowId: entry.flowId },
+        {
+          step_name: "quota_refusal_undelivered",
+          step_type: "alarm",
+          status: "error",
+          metadata: { reason, channel, sender, quota_guard: true },
+        },
+      );
     }
+    pipeline.log.debug(
+      `blocked quota-refused inbound run (channel=${channel} sender=${sender} delivered=${delivered})`,
+    );
+    return {
+      outcome: "block",
+      reason: `pryva: quota exceeded — refusal ${delivered ? "delivered" : "undelivered"}`,
+      category: "quota",
+    };
   }
 }
 
