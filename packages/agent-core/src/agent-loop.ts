@@ -918,6 +918,25 @@ async function prepareToolCall(
   }
 }
 
+/**
+ * A tool that RESOLVES with a structured failure — `{ isError: true }`, the exact
+ * shape the plugin errorResult wrappers return (content + flag, no throw) — must be
+ * recorded as a failed tool call. Only the absence of that flag is success.
+ *
+ * T634: the app-layer observer learned to honour top-level isError (T410), but the
+ * message record is written HERE, from `executed.isError`, which used to default to
+ * false on every non-throwing resolve — so a plugin 404 that returned
+ * `{content, isError:true}` landed in the session/trajectory as isError:false.
+ * Local on purpose: packages/agent-core cannot import the app-layer predicate.
+ */
+function resolvedToolResultIsError(result: unknown): boolean {
+  return (
+    result != null &&
+    typeof result === "object" &&
+    (result as { isError?: boolean }).isError === true
+  );
+}
+
 async function executePreparedToolCall(
   prepared: PreparedToolCall,
   signal: AbortSignal | undefined,
@@ -945,7 +964,7 @@ async function executePreparedToolCall(
       },
     );
     await Promise.all(updateEvents);
-    return { result, isError: false };
+    return { result, isError: resolvedToolResultIsError(result) };
   } catch (error) {
     await Promise.all(updateEvents);
     return {

@@ -1001,3 +1001,111 @@ describe("agentLoop thinking state", () => {
     expect(observedReasoning).toEqual(expected);
   });
 });
+
+describe("agentLoop recorded toolResult isError (T634)", () => {
+  function assistantTurn(content: AssistantMessage["content"]): AssistantMessage {
+    return {
+      role: "assistant",
+      content,
+      api: model.api,
+      provider: model.provider,
+      model: model.id,
+      usage: TEST_USAGE,
+      stopReason: content.some((item) => item.type === "toolCall") ? "toolUse" : "stop",
+      timestamp: 1,
+    };
+  }
+
+  function twoTurnStreamFn(toolCall: { id: string; name: string }): StreamFn {
+    let turn = 0;
+    return () => {
+      turn += 1;
+      const stream = createAssistantMessageEventStream();
+      queueMicrotask(() => {
+        const message =
+          turn === 1
+            ? assistantTurn([
+                { type: "toolCall", id: toolCall.id, name: toolCall.name, arguments: {} },
+              ])
+            : assistantTurn([{ type: "text", text: "done" }]);
+        stream.push({
+          type: "done",
+          reason: message.stopReason === "toolUse" ? "toolUse" : "stop",
+          message,
+        });
+        stream.end();
+      });
+      return stream;
+    };
+  }
+
+  function recordedToolResult(messages: AgentMessage[], events: AgentEvent[], name: string) {
+    const fromMessages = messages.find(
+      (message) => message.role === "toolResult" && message.toolName === name,
+    );
+    const fromEvents = events
+      .filter((event) => event.type === "message_end")
+      .map((event) => (event as { message?: AgentMessage }).message)
+      .find((message) => message?.role === "toolResult" && message.toolName === name);
+    return { fromMessages, fromEvents };
+  }
+
+  it("records isError:true on the toolResult MESSAGE for a resolved structured failure", async () => {
+    // Exact pryva-smm errorResult shape: content + top-level flag, no throw, no details.
+    const failingTool: AgentTool = {
+      name: "failing_lookup",
+      label: "failing_lookup",
+      description: "returns a structured failure without throwing",
+      parameters: Type.Object({}, { additionalProperties: false }),
+      execute: async () => ({
+        content: [{ type: "text", text: "Error: Pryva SMM API GET /smm/planning/x → 404" }],
+        isError: true,
+      }),
+    };
+
+    const events: AgentEvent[] = [];
+    const messages = await runAgentLoop(
+      [{ role: "user", content: "fetch the plan", timestamp: 1 }],
+      { systemPrompt: "", messages: [], tools: [failingTool] },
+      config,
+      (event) => {
+        events.push(event);
+      },
+      undefined,
+      twoTurnStreamFn({ id: "call-failing", name: "failing_lookup" }),
+    );
+
+    const { fromMessages, fromEvents } = recordedToolResult(messages, events, "failing_lookup");
+    expect(fromMessages).toMatchObject({ role: "toolResult", isError: true });
+    expect(fromEvents).toMatchObject({ role: "toolResult", isError: true });
+  });
+
+  it("keeps isError:false for a resolved plain success (no over-triggering)", async () => {
+    const okTool: AgentTool = {
+      name: "ok_lookup",
+      label: "ok_lookup",
+      description: "returns a plain success",
+      parameters: Type.Object({}, { additionalProperties: false }),
+      execute: async () => ({
+        content: [{ type: "text", text: "ok" }],
+        details: { ok: true },
+      }),
+    };
+
+    const events: AgentEvent[] = [];
+    const messages = await runAgentLoop(
+      [{ role: "user", content: "lookup", timestamp: 1 }],
+      { systemPrompt: "", messages: [], tools: [okTool] },
+      config,
+      (event) => {
+        events.push(event);
+      },
+      undefined,
+      twoTurnStreamFn({ id: "call-ok", name: "ok_lookup" }),
+    );
+
+    const { fromMessages, fromEvents } = recordedToolResult(messages, events, "ok_lookup");
+    expect(fromMessages).toMatchObject({ role: "toolResult", isError: false });
+    expect(fromEvents).toMatchObject({ role: "toolResult", isError: false });
+  });
+});
