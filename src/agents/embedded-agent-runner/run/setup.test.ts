@@ -61,6 +61,53 @@ describe("resolveHookModelSelection", () => {
     expect(result.modelId).toBe("vision-model");
   });
 
+  it("returns toolSchemaAllowlist from before_model_resolve without changing the model", async () => {
+    const hookRunner = {
+      hasHooks: vi.fn((hookName: string) => hookName === "before_model_resolve"),
+      runBeforeModelResolve: vi.fn(async () => ({
+        toolSchemaAllowlist: ["read", "message"],
+      })),
+      runBeforeAgentStart: vi.fn(),
+    };
+
+    const result = await resolveHookModelSelection({
+      prompt: "hello",
+      provider: "openai",
+      modelId: "gpt-5.5",
+      hookRunner,
+      hookContext,
+    });
+
+    expect(result.provider).toBe("openai");
+    expect(result.modelId).toBe("gpt-5.5");
+    expect(result.toolSchemaAllowlist).toEqual(["read", "message"]);
+  });
+
+  it("keeps an explicit empty toolSchemaAllowlist from before_model_resolve", async () => {
+    const hookRunner = {
+      hasHooks: vi.fn(
+        (hookName: string) =>
+          hookName === "before_model_resolve" || hookName === "before_agent_start",
+      ),
+      runBeforeModelResolve: vi.fn(async () => ({
+        toolSchemaAllowlist: [] as string[],
+      })),
+      runBeforeAgentStart: vi.fn(async () => ({
+        toolSchemaAllowlist: ["exec"],
+      })),
+    };
+
+    const result = await resolveHookModelSelection({
+      prompt: "hello",
+      provider: "openai",
+      modelId: "gpt-5.5",
+      hookRunner,
+      hookContext,
+    });
+
+    expect(result.toolSchemaAllowlist).toEqual([]);
+  });
+
   it("omits the attachments key for text-only before_model_resolve hooks", async () => {
     const hookRunner = {
       hasHooks: vi.fn((hookName: string) => hookName === "before_model_resolve"),

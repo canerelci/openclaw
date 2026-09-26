@@ -358,11 +358,16 @@ export function createHookRunner(
   const mergeBeforeModelResolve = (
     acc: PluginHookBeforeModelResolveResult | undefined,
     next: PluginHookBeforeModelResolveResult,
-  ): PluginHookBeforeModelResolveResult => ({
+  ): PluginHookBeforeModelResolveResult => {
     // Keep the first defined override so higher-priority hooks win.
-    modelOverride: firstDefined(acc?.modelOverride, next.modelOverride),
-    providerOverride: firstDefined(acc?.providerOverride, next.providerOverride),
-  });
+    // An explicit [] is a real allowlist (no schemas), so it must not fall through.
+    const toolSchemaAllowlist = firstDefined(acc?.toolSchemaAllowlist, next.toolSchemaAllowlist);
+    return {
+      modelOverride: firstDefined(acc?.modelOverride, next.modelOverride),
+      providerOverride: firstDefined(acc?.providerOverride, next.providerOverride),
+      ...(toolSchemaAllowlist !== undefined ? { toolSchemaAllowlist } : {}),
+    };
+  };
 
   const mergeBeforePromptBuild = (
     acc: PluginHookBeforePromptBuildResult | undefined,

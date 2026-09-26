@@ -2131,6 +2131,7 @@ async function runEmbeddedAgentInternal(
             modelRegistry,
             agentId: workspaceResolution.agentId,
             beforeAgentStartResult,
+            toolSchemaAllowlist: hookSelection.toolSchemaAllowlist,
             thinkLevel,
             onToolOutcome: observeToolOutcome,
             allocateToolOutcomeOrdinal,

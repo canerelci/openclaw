@@ -47,6 +47,21 @@ describe("phase hooks merger", () => {
     expect(result).toStrictEqual(params.expected);
   }
 
+  it("before_model_resolve keeps an explicit empty toolSchemaAllowlist", async () => {
+    const result = await runPhaseHook({
+      hookName: "before_model_resolve",
+      hooks: [
+        { pluginId: "high", result: { toolSchemaAllowlist: [] }, priority: 10 },
+        { pluginId: "low", result: { toolSchemaAllowlist: ["read"] }, priority: 1 },
+      ],
+    });
+    expect(result).toEqual({
+      modelOverride: undefined,
+      providerOverride: undefined,
+      toolSchemaAllowlist: [],
+    });
+  });
+
   it.each([
     {
       name: "before_model_resolve keeps higher-priority override values",

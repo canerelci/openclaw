@@ -16,6 +16,12 @@ export type PluginHookBeforeModelResolveResult = {
   modelOverride?: string;
   /** Override the provider for this agent run. E.g. "local-provider" */
   providerOverride?: string;
+  /**
+   * Optional tool-schema allowlist for this attempt. Absent keeps today's
+   * schemas. Present, including [], sends only those names. Unknown names
+   * are dropped. This does not change prompt mode or the skills prompt.
+   */
+  toolSchemaAllowlist?: string[];
 };
 
 // before_prompt_build hook

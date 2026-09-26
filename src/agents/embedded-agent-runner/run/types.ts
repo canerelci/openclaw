@@ -108,6 +108,12 @@ export type EmbeddedRunAttemptParams = EmbeddedRunAttemptBase & {
   /** True when this attempt is running the auto fast-mode policy. */
   fastModeAuto?: boolean;
   beforeAgentStartResult?: PluginHookBeforeAgentStartResult;
+  /**
+   * Tool names whose schemas may be sent on this attempt. Absent keeps the
+   * unfiltered schema set. Present, including [], is the whole model-bound list.
+   * Independent of toolsAllow, so prompt mode and skills stay unchanged.
+   */
+  toolSchemaAllowlist?: string[];
   beforeAgentFinalizeRevisionAttempts?: number;
   maxBeforeAgentFinalizeRevisions?: number;
 };

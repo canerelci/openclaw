@@ -800,6 +800,32 @@ function collectAttemptExplicitToolAllowlistSources(params: {
   ]);
 }
 
+/**
+ * Keeps model-bound tool schemas to the caller allowlist.
+ * Undefined leaves the attempt's schema set untouched. A present list,
+ * including [], is exhaustive: unknown names are ignored and order stays
+ * the order the attempt already built. This is not toolsAllow.
+ */
+function applyAttemptToolSchemaAllowlist<T extends { name: string }>(
+  tools: readonly T[],
+  allowlist: readonly string[] | undefined,
+): readonly T[] {
+  if (allowlist === undefined) {
+    return tools;
+  }
+  const allowed = new Set<string>();
+  for (const entry of allowlist) {
+    const name = entry.trim();
+    if (name) {
+      allowed.add(name);
+    }
+  }
+  if (allowed.size === 0) {
+    return [];
+  }
+  return tools.filter((tool) => allowed.has(tool.name));
+}
+
 // Applies quota-resume TTL maintenance to only the active attempt session.
 async function loadAttemptSessionEntryAfterQuotaMaintenance(params: {
   storePath: string;
@@ -2461,7 +2487,17 @@ export async function runEmbeddedAttempt(
         );
       }
 
-      const allCustomTools = [...customTools, ...clientToolDefs];
+      // Filter only the schemas handed to the session. Prompt mode, skills,
+      // and the tool inventory used to build the system prompt stay on effectiveTools.
+      const modelBoundCustomTools = applyAttemptToolSchemaAllowlist(
+        customTools,
+        params.toolSchemaAllowlist,
+      );
+      const modelBoundClientTools = applyAttemptToolSchemaAllowlist(
+        clientToolDefs,
+        params.toolSchemaAllowlist,
+      );
+      const allCustomTools = [...modelBoundCustomTools, ...modelBoundClientTools];
       // The session runtime treats `tools` as a name allowlist during session creation. Pass the
       // exact OpenClaw-managed registrations so custom tools survive startup and
       // client-provided names do not broaden the prompt/runtime boundary.

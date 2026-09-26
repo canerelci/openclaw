@@ -1218,7 +1218,7 @@ export async function createContextEngineAttemptRunner(params: {
     info?: Partial<ContextEngineInfo>;
   };
   attemptOverrides?: Partial<Parameters<Awaited<ReturnType<typeof loadRunEmbeddedAttempt>>>[0]>;
-  createSession?: () => MutableSession;
+  createSession?: (options: { customTools?: ReadonlyArray<{ name: string }> }) => MutableSession;
   sessionMessages?: AgentMessage[];
   sessionPrompt?: SessionPromptOverride;
   sessionKey: string;
@@ -1252,9 +1252,11 @@ export async function createContextEngineAttemptRunner(params: {
     .mockReset()
     .mockReturnValue({ messages: seedMessages });
 
-  hoisted.createAgentSessionMock.mockImplementation(async () => ({
+  hoisted.createAgentSessionMock.mockImplementation(async (options: unknown) => ({
     session:
-      params.createSession?.() ??
+      params.createSession?.(
+        (options ?? {}) as { customTools?: ReadonlyArray<{ name: string }> },
+      ) ??
       createDefaultEmbeddedSession({
         initialMessages: seedMessages,
         prompt: params.sessionPrompt,

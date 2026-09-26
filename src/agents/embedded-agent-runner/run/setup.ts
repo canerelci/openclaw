@@ -7,6 +7,7 @@ import type {
   PluginHookBeforeAgentStartResult,
   PluginHookBeforeModelResolveAttachment,
   PluginHookBeforeModelResolveEvent,
+  PluginHookBeforeModelResolveResult,
 } from "../../../plugins/types.js";
 import {
   evaluateContextWindowGuard,
@@ -35,7 +36,7 @@ type HookRunnerLike = {
   runBeforeModelResolve(
     input: PluginHookBeforeModelResolveEvent,
     context: HookContext,
-  ): Promise<{ providerOverride?: string; modelOverride?: string } | undefined>;
+  ): Promise<PluginHookBeforeModelResolveResult | undefined>;
   runBeforeAgentStart(
     input: { prompt: string },
     context: HookContext,
@@ -57,7 +58,7 @@ export async function resolveHookModelSelection(params: {
 }) {
   let provider = params.provider;
   let modelId = params.modelId;
-  let modelResolveOverride: { providerOverride?: string; modelOverride?: string } | undefined;
+  let modelResolveResult: PluginHookBeforeModelResolveResult | undefined;
   let beforeAgentStartResult: PluginHookBeforeAgentStartResult | undefined;
   const hookRunner = params.hookRunner;
 
@@ -71,7 +72,7 @@ export async function resolveHookModelSelection(params: {
       const event: PluginHookBeforeModelResolveEvent = params.attachments
         ? { prompt: params.prompt, attachments: params.attachments }
         : { prompt: params.prompt };
-      modelResolveOverride = await hookRunner.runBeforeModelResolve(event, params.hookContext);
+      modelResolveResult = await hookRunner.runBeforeModelResolve(event, params.hookContext);
     } catch (hookErr) {
       log.warn(`before_model_resolve hook failed: ${String(hookErr)}`);
     }
@@ -83,10 +84,13 @@ export async function resolveHookModelSelection(params: {
         { prompt: params.prompt },
         params.hookContext,
       );
-      modelResolveOverride = {
+      modelResolveResult = {
+        ...modelResolveResult,
         providerOverride:
-          modelResolveOverride?.providerOverride ?? beforeAgentStartResult?.providerOverride,
-        modelOverride: modelResolveOverride?.modelOverride ?? beforeAgentStartResult?.modelOverride,
+          modelResolveResult?.providerOverride ?? beforeAgentStartResult?.providerOverride,
+        modelOverride: modelResolveResult?.modelOverride ?? beforeAgentStartResult?.modelOverride,
+        toolSchemaAllowlist:
+          modelResolveResult?.toolSchemaAllowlist ?? beforeAgentStartResult?.toolSchemaAllowlist,
       };
     } catch (hookErr) {
       log.warn(
@@ -95,12 +99,12 @@ export async function resolveHookModelSelection(params: {
     }
   }
 
-  if (modelResolveOverride?.providerOverride) {
-    provider = modelResolveOverride.providerOverride;
+  if (modelResolveResult?.providerOverride) {
+    provider = modelResolveResult.providerOverride;
     log.info(`[hooks] provider overridden to ${provider}`);
   }
-  if (modelResolveOverride?.modelOverride) {
-    modelId = modelResolveOverride.modelOverride;
+  if (modelResolveResult?.modelOverride) {
+    modelId = modelResolveResult.modelOverride;
     log.info(`[hooks] model overridden to ${modelId}`);
   }
 
@@ -108,6 +112,7 @@ export async function resolveHookModelSelection(params: {
     provider,
     modelId,
     beforeAgentStartResult,
+    toolSchemaAllowlist: modelResolveResult?.toolSchemaAllowlist,
   };
 }
 
