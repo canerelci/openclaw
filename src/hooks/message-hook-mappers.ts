@@ -3,6 +3,7 @@ import {
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
 import type { FinalizedMsgContext } from "../auto-reply/templating.js";
+import { normalizeChatType } from "../channels/chat-type.js";
 import { getChannelPlugin, normalizeChannelId } from "../channels/plugins/index.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
@@ -64,6 +65,7 @@ export type CanonicalInboundMessageHookContext = {
   channelName?: string;
   isGroup: boolean;
   groupId?: string;
+  groupSubject?: string;
   topicName?: string;
   trace?: DiagnosticTraceContext;
   callDepth?: number;
@@ -107,7 +109,9 @@ export function deriveInboundMessageHookContext(
     ctx.OriginatingChannel ?? ctx.Surface ?? ctx.Provider ?? "",
   );
   const conversationId = ctx.OriginatingTo ?? ctx.To ?? ctx.From ?? undefined;
-  const isGroup = Boolean(ctx.GroupSubject || ctx.GroupChannel);
+  const chatType = normalizeChatType(ctx.ChatType);
+  const isGroup =
+    Boolean(ctx.GroupSubject || ctx.GroupChannel) || chatType === "group" || chatType === "channel";
   const mediaPaths = Array.isArray(ctx.MediaPaths)
     ? ctx.MediaPaths.filter(
         (value): value is string => typeof value === "string" && value.length > 0,
@@ -169,6 +173,7 @@ export function deriveInboundMessageHookContext(
     channelName: ctx.GroupChannel,
     isGroup,
     groupId: isGroup ? conversationId : undefined,
+    groupSubject: readNonBlankString(ctx.GroupSubject),
     topicName: ctx.TopicName,
   };
 }
@@ -427,6 +432,8 @@ export function toPluginMessageReceivedEvent(
     ...(canonical.replyToIsQuote !== undefined ? { replyToIsQuote: canonical.replyToIsQuote } : {}),
     sessionKey: canonical.sessionKey,
     runId: canonical.runId,
+    isGroup: canonical.isGroup === true,
+    ...(canonical.groupId ? { groupId: canonical.groupId } : {}),
     metadata: {
       to: canonical.to,
       provider: canonical.provider,
@@ -452,6 +459,9 @@ export function toPluginMessageReceivedEvent(
       mediaTypes: canonical.mediaTypes,
       guildId: canonical.guildId,
       channelName: canonical.channelName,
+      groupId: canonical.groupId,
+      isGroup: canonical.isGroup === true,
+      ...(canonical.groupSubject ? { groupSubject: canonical.groupSubject } : {}),
       topicName: canonical.topicName,
     },
   };

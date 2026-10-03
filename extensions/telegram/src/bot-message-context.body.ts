@@ -20,10 +20,12 @@ import type {
 } from "openclaw/plugin-sdk/config-contracts";
 import {
   createInternalHookEvent,
+  fireAndForgetBoundedHook,
   fireAndForgetHook,
   toInternalMessageReceivedContext,
   triggerInternalHook,
 } from "openclaw/plugin-sdk/hook-runtime";
+import { getGlobalHookRunner } from "openclaw/plugin-sdk/plugin-runtime";
 import { createChannelHistoryWindow, type HistoryEntry } from "openclaw/plugin-sdk/reply-history";
 import type { MsgContext } from "openclaw/plugin-sdk/reply-runtime";
 import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
@@ -417,6 +419,30 @@ export async function resolveTelegramInboundBody(params: {
   const effectiveWasMentioned = mentionDecision.effectiveWasMentioned;
   if (isGroup && requireMention && canDetectMention && mentionDecision.shouldSkip) {
     logger.info({ chatId, reason: "no-mention" }, "skipping group message");
+    const listenSessionKey = sessionKey?.trim();
+    const listenRunner = getGlobalHookRunner();
+    if (listenSessionKey && listenRunner?.hasHooks("group_message_observed")) {
+      const groupTitle = msg.chat && "title" in msg.chat ? msg.chat.title : undefined;
+      fireAndForgetBoundedHook(
+        () =>
+          listenRunner.runGroupMessageObserved(
+            {
+              channel: "telegram",
+              groupId: String(chatId),
+              groupName: typeof groupTitle === "string" ? groupTitle : undefined,
+              sessionKey: listenSessionKey,
+              messageId: typeof msg.message_id === "number" ? String(msg.message_id) : undefined,
+              senderId: senderId || undefined,
+              senderName: buildSenderName(msg),
+              text: rawBody,
+              hasMedia: allMedia.length > 0,
+              timestamp: typeof msg.date === "number" ? msg.date : undefined,
+            },
+            {},
+          ),
+        "telegram: group listen",
+      );
+    }
     createChannelHistoryWindow({ historyMap: groupHistories }).record({
       historyKey: historyKey ?? "",
       limit: historyLimit,

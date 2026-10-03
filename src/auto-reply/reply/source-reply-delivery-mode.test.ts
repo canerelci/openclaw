@@ -30,6 +30,14 @@ function expectPolicyFields(
   }
 }
 
+const pryvaGroupConfig = {
+  pryva: {
+    pipeline: { enabled: true },
+    backendUrl: "http://127.0.0.1:9",
+    internalToken: "test-token",
+  },
+} as OpenClawConfig;
+
 describe("resolveSourceReplyDeliveryMode", () => {
   it("defaults source replies to automatic delivery outside ambient room events", () => {
     expect(resolveSourceReplyDeliveryMode({ cfg: emptyConfig, ctx: { ChatType: "channel" } })).toBe(
@@ -200,6 +208,36 @@ describe("resolveSourceReplyDeliveryMode", () => {
           },
         },
         ctx: { ChatType: "channel" },
+      }),
+    ).toBe("automatic");
+  });
+
+  it("keeps Pryva group finals private unless the turn is an explicit command", () => {
+    expect(
+      resolveSourceReplyDeliveryMode({
+        cfg: pryvaGroupConfig,
+        ctx: { ChatType: "group" },
+        requested: "automatic",
+        messageToolAvailable: false,
+      }),
+    ).toBe("message_tool_only");
+    expect(
+      resolveSourceReplyDeliveryMode({
+        cfg: pryvaGroupConfig,
+        ctx: { ChatType: "channel" },
+      }),
+    ).toBe("message_tool_only");
+    expect(
+      resolveSourceReplyDeliveryMode({
+        cfg: pryvaGroupConfig,
+        ctx: { ChatType: "direct" },
+        requested: "automatic",
+      }),
+    ).toBe("automatic");
+    expect(
+      resolveSourceReplyDeliveryMode({
+        cfg: pryvaGroupConfig,
+        ctx: { ChatType: "group", CommandSource: "native" },
       }),
     ).toBe("automatic");
   });

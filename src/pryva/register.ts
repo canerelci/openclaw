@@ -10,6 +10,7 @@
 import type { OpenClawConfig } from "../config/config.js";
 import type { OpenClawPluginApi } from "../plugins/types.js";
 import { resolvePryvaConfig } from "./config.js";
+import { onGroupMessageObserved } from "./group-listen.js";
 import { publishSelfTurn } from "./inner-voice.js";
 import { onInboundClaim } from "./pipeline-claim.js";
 import { onBeforeAgentFinalize } from "./pipeline-finalize.js";
@@ -66,6 +67,8 @@ export function registerPryvaPipelineHooks(api: OpenClawPluginApi, cfg: OpenClaw
   // Fail-open — if the backend doesn't claim it, the message flows on as normal.
   api.on("inbound_claim", (event, ctx) => onInboundClaim(pipeline, event, ctx));
   api.on("message_received", (event, ctx) => onMessageReceived(pipeline, event, ctx));
+  // Mention-skipped group messages. No flow mint: the handler only POSTs group-listen.
+  api.on("group_message_observed", (event) => onGroupMessageObserved(pipeline, event));
   // before_agent_run is the run-level dedup gate: it blocks a DUPLICATE agent run
   // for the same inbound message (spool retry). Complements the message_received
   // guard (which dedups flow-mint + Ear); scoped to real channel messages only.

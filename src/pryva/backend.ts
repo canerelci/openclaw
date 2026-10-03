@@ -66,6 +66,75 @@ export async function pryvaFetch(
   }
 }
 
+export type PryvaClosedFetchResult = { ok: true; body: unknown } | { ok: false; reason: string };
+
+/**
+ * Fail-closed POST. The group outbound gate is the one caller: a missing,
+ * non-2xx, or unparseable answer is a refusal, not a skip. Does not throw.
+ */
+export async function pryvaFetchClosed(
+  cfg: ResolvedPryvaConfig,
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+  opts: PryvaFetchOptions = {},
+): Promise<PryvaClosedFetchResult> {
+  const url = `${cfg.backendUrl}/api/v1${path.startsWith("/") ? path : `/${path}`}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${cfg.internalToken}`,
+    };
+    if (opts.flowId) {
+      headers["X-Flow-Id"] = opts.flowId;
+    }
+    const response = await globalThis.fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      log.debug(`backend ${method} ${path} -> ${response.status}`);
+      return { ok: false, reason: readClosedFailureReason(text) ?? "Group send refused." };
+    }
+    if (!text) {
+      return { ok: false, reason: "Group send refused." };
+    }
+    try {
+      return { ok: true, body: JSON.parse(text) as unknown };
+    } catch {
+      return { ok: false, reason: "Group send refused." };
+    }
+  } catch (err) {
+    log.debug(`backend ${method} ${path} failed closed: ${String(err)}`);
+    return { ok: false, reason: "Group send refused: backend unreachable." };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function readClosedFailureReason(text: string): string | undefined {
+  if (!text) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(text) as { reason?: unknown; detail?: unknown };
+    if (typeof parsed.reason === "string" && parsed.reason.trim()) {
+      return parsed.reason.trim();
+    }
+    if (typeof parsed.detail === "string" && parsed.detail.trim()) {
+      return parsed.detail.trim();
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 export type PryvaQuotaRefusal = { quotaRefused: true; status: 402; detail: string };
 
 /**

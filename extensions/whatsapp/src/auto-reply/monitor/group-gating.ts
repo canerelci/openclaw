@@ -1,6 +1,8 @@
 // Whatsapp plugin module implements group gating behavior.
 import type { BuildMentionRegexesOptions } from "openclaw/plugin-sdk/channel-mention-gating";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { fireAndForgetBoundedHook } from "openclaw/plugin-sdk/hook-runtime";
+import { getGlobalHookRunner } from "openclaw/plugin-sdk/plugin-runtime";
 import { resolveWhatsAppGroupsConfigPath } from "../../group-config-path.js";
 import {
   getPrimaryIdentityId,
@@ -113,6 +115,39 @@ function recordPendingGroupHistoryEntry(params: {
       senderJid: senderIdentity.jid ?? params.msg.platform.senderJid,
     },
   });
+}
+
+function emitSkippedGroupListen(params: ApplyGroupGatingParams, groupId: string, text: string) {
+  const sessionKey = params.sessionKey.trim();
+  if (!sessionKey || !groupId) {
+    return;
+  }
+  const runner = getGlobalHookRunner();
+  if (!runner?.hasHooks("group_message_observed")) {
+    return;
+  }
+  const sender = getSenderIdentity(params.msg);
+  const media = params.msg.payload.media;
+  fireAndForgetBoundedHook(
+    () =>
+      runner.runGroupMessageObserved(
+        {
+          channel: "whatsapp",
+          groupId,
+          groupName: params.msg.group?.subject,
+          sessionKey,
+          messageId: params.msg.event.id,
+          senderId: getPrimaryIdentityId(sender) ?? sender.e164 ?? undefined,
+          senderName: sender.name ?? undefined,
+          text,
+          hasMedia: Boolean(media?.path || media?.url),
+          timestamp: params.msg.event.timestamp,
+        },
+        {},
+      ),
+    "whatsapp: group listen",
+    params.logVerbose,
+  );
 }
 
 function skipGroupMessageAndStoreHistory(
@@ -251,6 +286,7 @@ export async function applyGroupGating(params: ApplyGroupGatingParams) {
       );
       return { shouldProcess: false, needsMentionText: true } as const;
     }
+    emitSkippedGroupListen(params, conversationId, mentionMsg.payload.body ?? "");
     return skipGroupMessageAndStoreHistory(
       params,
       `Group message stored for context (no mention detected) in ${conversationId}: ${mentionMsg.payload.body}`,

@@ -38,6 +38,7 @@ import {
 import { createDiagnosticMessageLifecycle } from "../../logging/message-lifecycle.js";
 import { isCommandLaneTaskTimeoutError } from "../../process/command-queue.js";
 import { CommandLane } from "../../process/lanes.js";
+import { pryvaGroupSessionKeepsFinalPrivate } from "../../pryva/group-session.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import { resolveNonNegativeNumber } from "../../shared/number-coercion.js";
 import { resolveCronSkillsSnapshot } from "../../skills/runtime/cron-snapshot.js";
@@ -371,12 +372,41 @@ function canPromptForMessageTool(params: {
 }
 
 /** Exported for #91613 keyless-inherited delivery-context regression coverage. */
+function pryvaGroupSourceDelivery(target: SourceDeliveryPlan["target"]): SourceDeliveryPlan {
+  // Owner message_tool sets sourceReplyDeliveryMode message_tool_only and keeps
+  // directFallback off. deliveryRequested stays false because the plan mode is none.
+  return createSourceDeliveryPlan({
+    owner: "message_tool",
+    reason: "cron_none",
+    target,
+    messageToolEnabled: true,
+    messageToolForced: false,
+    directFallback: false,
+  });
+}
+
 export async function resolveCronDeliveryContext(params: {
   cfg: OpenClawConfig;
   job: CronJob;
   agentId: string;
 }) {
-  const deliveryPlan = resolveCronDeliveryPlan(params.job);
+  const planned = resolveCronDeliveryPlan(params.job);
+  const groupPrivate =
+    planned.mode !== "webhook" &&
+    pryvaGroupSessionKeepsFinalPrivate(params.cfg, resolveCronDeliverySessionKey(params.job));
+  // Drop announce targets before the none short-circuit so a group wake never
+  // reaches the last-channel fallback. The message tool remains the only post path.
+  const deliveryPlan: CronDeliveryPlan = groupPrivate
+    ? {
+        ...planned,
+        mode: "none",
+        requested: false,
+        channel: undefined,
+        to: undefined,
+        threadId: undefined,
+        accountId: undefined,
+      }
+    : planned;
   if (deliveryPlan.mode === "webhook") {
     const resolvedDelivery = {
       ok: false as const,
@@ -404,11 +434,14 @@ export async function resolveCronDeliveryContext(params: {
       mode: "implicit" as const,
       error: new Error("delivery is disabled"),
     };
+    const sourceDelivery = groupPrivate
+      ? pryvaGroupSourceDelivery({})
+      : resolveCronSourceDeliveryPlan({ deliveryPlan, resolvedDelivery });
     return {
       deliveryPlan,
       deliveryRequested: false,
       resolvedDelivery,
-      sourceDelivery: resolveCronSourceDeliveryPlan({ deliveryPlan, resolvedDelivery }),
+      sourceDelivery,
     };
   }
   const { resolveDeliveryTarget } = await loadCronDeliveryRuntime();

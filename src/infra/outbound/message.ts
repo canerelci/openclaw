@@ -9,6 +9,7 @@ import type { PollInput } from "../../polls.js";
 import { normalizePollInput } from "../../polls.js";
 import { resolveOutboundChannelPlugin } from "./channel-resolution.js";
 import { resolveMessageChannelSelection } from "./channel-selection.js";
+import { messageSendingHookCancelReason } from "./deliver-types.js";
 import {
   resolveOutboundDurableFinalDeliverySupport,
   type DurableFinalDeliveryRequirements,
@@ -425,6 +426,10 @@ export async function sendMessage(params: MessageSendParams): Promise<MessageSen
           }
         : undefined,
     });
+    const hookRefusal = messageSendingHookCancelReason(send);
+    if (hookRefusal) {
+      throw new Error(hookRefusal);
+    }
     if (!params.bestEffort && (send.status === "failed" || send.status === "partial_failed")) {
       throw send.error;
     }

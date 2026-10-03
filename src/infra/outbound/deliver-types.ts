@@ -19,6 +19,26 @@ export type OutboundDeliveryResult = {
   meta?: Record<string, unknown>;
 };
 
+/** Reason text the agent should see when message_sending cancelled the send. */
+export function messageSendingHookCancelReason(send: {
+  status: string;
+  reason?: string;
+  payloadOutcomes?: ReadonlyArray<{
+    status: string;
+    reason?: string;
+    hookEffect?: { cancelReason?: string };
+  }>;
+}): string | undefined {
+  if (send.status !== "suppressed" || send.reason !== "cancelled_by_message_sending_hook") {
+    return undefined;
+  }
+  const outcome = send.payloadOutcomes?.find(
+    (item) => item.status === "suppressed" && item.reason === "cancelled_by_message_sending_hook",
+  );
+  const reason = outcome?.hookEffect?.cancelReason?.trim();
+  return reason || "Send refused.";
+}
+
 /** Reason a payload was intentionally not sent after normalization or hooks. */
 export type OutboundPayloadDeliverySuppressionReason =
   | "cancelled_by_message_sending_hook"

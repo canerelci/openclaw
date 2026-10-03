@@ -2,6 +2,7 @@
 import { normalizeChatType } from "../../channels/chat-type.js";
 import type { InboundEventKind } from "../../channels/inbound-event/kind.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { resolvePryvaConfig } from "../../pryva/config.js";
 import type { SessionSendPolicyDecision } from "../../sessions/send-policy.js";
 import { INTERNAL_MESSAGE_CHANNEL, normalizeMessageChannel } from "../../utils/message-channel.js";
 import { resolveCommandTurnContext, type CommandTurnContext } from "../command-turn-context.js";
@@ -71,6 +72,15 @@ export function resolveSourceReplyDeliveryMode(params: {
   if (params.ctx.InboundEventKind === "room_event" && !isInternalRoomEvent(params.ctx)) {
     return "message_tool_only";
   }
+  const chatType = normalizeChatType(params.ctx.ChatType);
+  // Pryva groups keep the final private even when a caller asked for automatic
+  // delivery or the message tool looks unavailable. Operator slash commands still reply.
+  if ((chatType === "group" || chatType === "channel") && resolvePryvaConfig(params.cfg) != null) {
+    if (isExplicitSourceReplyCommand(params.ctx, params.cfg)) {
+      return "automatic";
+    }
+    return "message_tool_only";
+  }
   if (
     params.requested &&
     (params.requested !== "message_tool_only" || params.messageToolAvailable !== false)
@@ -80,7 +90,6 @@ export function resolveSourceReplyDeliveryMode(params: {
   if (isExplicitSourceReplyCommand(params.ctx, params.cfg)) {
     return "automatic";
   }
-  const chatType = normalizeChatType(params.ctx.ChatType);
   if (
     (chatType === "group" || chatType === "channel") &&
     isUnauthorizedTextSlashCommand(params.ctx)

@@ -25,6 +25,7 @@
 
 import type { PluginSessionTurnScheduleParams } from "../plugins/types.js";
 import type { FlowSource } from "./flow-registry.js";
+import { isGroupSessionKey } from "./group-session.js";
 import { logFlowStep, type PryvaPipeline } from "./pipeline.js";
 
 /** Cron-name tag for the scheduled wake; cancel-on-inbound removes by this tag. No `:` allowed. */
@@ -92,7 +93,11 @@ function longestQuoteRun(text: string): number {
  * its mouth; the thought itself stays inside. The impulse is in the owner's language; the persona
  * (SOUL) governs the outgoing message's voice.
  */
-export function buildInnerVoiceMessage(thought: string, mustSpeak = false): string {
+export function buildInnerVoiceMessage(
+  thought: string,
+  mustSpeak = false,
+  privateFinal = false,
+): string {
   // mustSpeak: the thought is a REQUIRED notification the owner must receive (e.g. a background
   // job the owner is waiting on just finished — a weekly plan ready for approval). The default
   // NO_REPLY escape ("nothing worth saying → NO_REPLY") wrongly let the model swallow these:
@@ -100,20 +105,27 @@ export function buildInnerVoiceMessage(thought: string, mustSpeak = false): stri
   // fl-6e08c071a63b — a "message the owner" thought answered NO_REPLY). For mustSpeak we drop the
   // "nothing worth saying" escape and require exactly one message; NO_REPLY stays allowed ONLY if
   // the owner already re-engaged (so we don't talk over them), which the closer still honors.
-  const closer = mustSpeak
+  const closer = privateFinal
     ? [
-        "Act on this thought. Your owner is waiting on this, so you MUST tell them now:",
-        "- Send ONE short message to your owner, in your own voice (per your persona / SOUL), in their language.",
-        "- Deliver it EITHER with the message tool OR as your final plain-text reply — never both. If you sent it with the message tool, end your turn with exactly NO_REPLY so it is not delivered twice.",
-        "- The ONLY other case where NO_REPLY is allowed: your owner has written since your last message (you would be talking over them).",
-        "- The last messages in the conversation may well be your own. That is expected here and is NEVER a reason to stay silent.",
+        "Act on this thought. This session is a group.",
+        "- Your final plain-text reply stays private. It is not posted to the group.",
+        "- The only way to post in the group is the message tool, and only the text you send with it.",
+        "- If there is nothing worth posting, reply with exactly NO_REPLY.",
       ].join("\n")
-    : [
-        "Act on this thought. Do any needed work silently.",
-        "- If there is a single, natural thing to say to your owner, say it in ONE short message, in your own voice (per your persona / SOUL), in their language.",
-        "- Deliver it EITHER with the message tool OR as your final plain-text reply — never both. If you sent it with the message tool, end your turn with exactly NO_REPLY so it is not delivered twice.",
-        "- If your owner has already written since your last message, or there is nothing worth saying, reply with exactly NO_REPLY.",
-      ].join("\n");
+    : mustSpeak
+      ? [
+          "Act on this thought. Your owner is waiting on this, so you MUST tell them now:",
+          "- Send ONE short message to your owner, in your own voice (per your persona / SOUL), in their language.",
+          "- Deliver it EITHER with the message tool OR as your final plain-text reply — never both. If you sent it with the message tool, end your turn with exactly NO_REPLY so it is not delivered twice.",
+          "- The ONLY other case where NO_REPLY is allowed: your owner has written since your last message (you would be talking over them).",
+          "- The last messages in the conversation may well be your own. That is expected here and is NEVER a reason to stay silent.",
+        ].join("\n")
+      : [
+          "Act on this thought. Do any needed work silently.",
+          "- If there is a single, natural thing to say to your owner, say it in ONE short message, in your own voice (per your persona / SOUL), in their language.",
+          "- Deliver it EITHER with the message tool OR as your final plain-text reply — never both. If you sent it with the message tool, end your turn with exactly NO_REPLY so it is not delivered twice.",
+          "- If your owner has already written since your last message, or there is nothing worth saying, reply with exactly NO_REPLY.",
+        ].join("\n");
   // The thought is externally supplied (backend-authored) and MUST stay inside the fence: a thought
   // containing a bare `"""` line would otherwise close the block early and promote its own tail to
   // instruction altitude — the imperative bleed this framing exists to stop. Grow the fence past the
@@ -179,7 +191,10 @@ export async function scheduleSelfWake(
 
   const delaySeconds = opts.delaySeconds ?? DEFAULT_DELAY_SECONDS;
   const delayMs = Math.max(MIN_DELAY_MS, Math.round(delaySeconds * 1000));
-  const message = buildInnerVoiceMessage(thought, opts.mustSpeak === true);
+  // A group session must not announce the final into the group. deliveryMode none keeps
+  // deliveryRequested false; the message tool is still how the turn posts.
+  const privateGroupFinal = isGroupSessionKey(sessionKey) && opts.silent !== true;
+  const message = buildInnerVoiceMessage(thought, opts.mustSpeak === true, privateGroupFinal);
   const params: PluginSessionTurnScheduleParams = {
     sessionKey,
     message,
@@ -189,7 +204,8 @@ export async function scheduleSelfWake(
     // structurally undeliverable. With no explicit cron delivery target, the cron runner short-
     // circuits to deliveryRequested:false BEFORE resolveDeliveryTarget runs — so the "last"-channel
     // fallback that can pick the single configured channel + allowFrom[0] is never reached.
-    deliveryMode: opts.silent === true ? "none" : "announce",
+    // Group wakes use the same mode so announce cannot auto-post the final text.
+    deliveryMode: opts.silent === true || privateGroupFinal ? "none" : "announce",
     // A failed self-wake must not spam the owner with a raw "⚠️ Cron job … failed:
     // FallbackSummaryError…" message (observed live 2026-07-11, DNS outage): the backend's
     // outcome observer already sees the silence and reschedules/rephrases. Log-only.
@@ -409,6 +425,9 @@ const FLOW_RESUME_SELF_TURN_SOURCES: ReadonlySet<FlowSource> = new Set<FlowSourc
   // a NEW flow_start under the backend's flow — fragmenting attribution and making the child the
   // session's binding (which then absorbs subsequent runs).
   "scheduled_todo",
+  // A group-listener wake: the backend minted the flow, logged flow_start(source=group_listener),
+  // and passed that id as pryvaFlowId. Resume it. Minting a child splits one wake into two ids.
+  "group_listener",
 ]);
 
 /**

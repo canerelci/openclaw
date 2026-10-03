@@ -341,6 +341,8 @@ describe("message hook mappers", () => {
       senderId: "sender-1",
       sessionKey: "session-1",
       runId: "run-1",
+      isGroup: true,
+      groupId: "demo-chat:chat:456",
       trace: receivedEvent.trace,
       traceId: "11111111111111111111111111111111",
       spanId: "2222222222222222",

@@ -67,7 +67,14 @@ export type FlowSource =
   // `tool_completion` = a detached media/tool task (image_generate etc.) finishing and
   // waking the requester session. Always a flow_resume of the parent turn that launched
   // the tool — never a new source=system flow (H4).
-  | "tool_completion";
+  | "tool_completion"
+  // `group_listener` = the backend judged a batch of unmentioned group messages worth a
+  // turn. The backend already minted the flow and logged flow_start. The wake RE-ENTERS
+  // that id (see FLOW_RESUME_SELF_TURN_SOURCES). Never a child the fork mints.
+  | "group_listener"
+  // `group_gate` = a held group post is being asked of the owner on their direct session.
+  // A child of the turn that tried to post. The fork does not resume it.
+  | "group_gate";
 
 /** A flow's structural binding to a run/session. */
 export type FlowBinding = {

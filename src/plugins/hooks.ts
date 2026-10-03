@@ -64,6 +64,8 @@ import type {
   PluginHookGatewayContext,
   PluginHookGatewayStartEvent,
   PluginHookGatewayStopEvent,
+  PluginHookGroupMessageObservedContext,
+  PluginHookGroupMessageObservedEvent,
   PluginHookMessageContext,
   PluginHookMessageReceivedEvent,
   PluginHookMessageSendingEvent,
@@ -1065,6 +1067,17 @@ export function createHookRunner(
   }
 
   /**
+   * Run group_message_observed hook.
+   * Fire-and-forget observation of an allowed-group message that did not start a turn.
+   */
+  async function runGroupMessageObserved(
+    event: PluginHookGroupMessageObservedEvent,
+    ctx: PluginHookGroupMessageObservedContext,
+  ): Promise<void> {
+    return runVoidHook("group_message_observed", event, ctx);
+  }
+
+  /**
    * Run before_dispatch hook.
    * Allows plugins to inspect or handle a message before model dispatch.
    * First handler returning { handled: true } wins.
@@ -1644,6 +1657,7 @@ export function createHookRunner(
     runInboundClaimForPlugin,
     runInboundClaimForPluginOutcome,
     runMessageReceived,
+    runGroupMessageObserved,
     runBeforeDispatch,
     runReplyDispatch,
     runReplyPayloadSending,

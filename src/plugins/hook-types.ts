@@ -22,6 +22,8 @@ import type { PluginHookBeforeToolCallResult } from "./hook-before-tool-call-res
 import type { PluginHookChannelContext } from "./hook-channel-context.types.js";
 import type { InputGateDecision } from "./hook-decision-types.js";
 import type {
+  PluginHookGroupMessageObservedContext,
+  PluginHookGroupMessageObservedEvent,
   PluginHookInboundClaimContext,
   PluginHookInboundClaimEvent,
   PluginHookMessageContext,
@@ -64,6 +66,8 @@ export type {
   PluginHeartbeatPromptContributionResult,
 } from "./host-hook-turn-types.js";
 export type {
+  PluginHookGroupMessageObservedContext,
+  PluginHookGroupMessageObservedEvent,
   PluginHookInboundClaimContext,
   PluginHookInboundClaimEvent,
   PluginHookMessageContext,
@@ -95,6 +99,7 @@ export type PluginHookName =
   | "before_reset"
   | "inbound_claim"
   | "message_received"
+  | "group_message_observed"
   | "message_sending"
   | "reply_payload_sending"
   | "message_sent"
@@ -142,6 +147,7 @@ export const PLUGIN_HOOK_NAMES = [
   "before_reset",
   "inbound_claim",
   "message_received",
+  "group_message_observed",
   "message_sending",
   "reply_payload_sending",
   "message_sent",
@@ -1169,6 +1175,10 @@ export type PluginHookHandlerMap = {
   message_received: (
     event: PluginHookMessageReceivedEvent,
     ctx: PluginHookMessageContext,
+  ) => Promise<void> | void;
+  group_message_observed: (
+    event: PluginHookGroupMessageObservedEvent,
+    ctx: PluginHookGroupMessageObservedContext,
   ) => Promise<void> | void;
   message_sending: (
     event: PluginHookMessageSendingEvent,

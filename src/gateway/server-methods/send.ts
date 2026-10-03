@@ -26,6 +26,7 @@ import {
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { resolveOutboundChannelPlugin } from "../../infra/outbound/channel-resolution.js";
 import { resolveMessageChannelSelection } from "../../infra/outbound/channel-selection.js";
+import { messageSendingHookCancelReason } from "../../infra/outbound/deliver-types.js";
 import {
   hydrateAttachmentParamsForAction,
   resolveAttachmentMediaPolicy,
@@ -837,6 +838,10 @@ export const sendHandlers: GatewayRequestHandlers = {
         });
         if (send.status === "failed" || send.status === "partial_failed") {
           throw send.error;
+        }
+        const hookRefusal = messageSendingHookCancelReason(send);
+        if (hookRefusal) {
+          throw new Error(hookRefusal);
         }
         const results = send.status === "sent" ? send.results : [];
 
