@@ -4,6 +4,7 @@ import {
   readNonBlankString,
 } from "@openclaw/normalization-core/string-coerce";
 import type { FinalizedMsgContext } from "../auto-reply/templating.js";
+import { normalizeChatType } from "../channels/chat-type.js";
 import { getChannelPlugin, normalizeChannelId } from "../channels/plugins/index.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
@@ -114,7 +115,9 @@ function deriveInboundMessageHookContextBase(
     ctx.To ??
     ctx.From ??
     internalSessionConversationId(channelId, ctx.SessionKey);
-  const isGroup = Boolean(ctx.GroupSubject || ctx.GroupChannel);
+  const chatType = normalizeChatType(ctx.ChatType);
+  const isGroup =
+    Boolean(ctx.GroupSubject || ctx.GroupChannel) || chatType === "group" || chatType === "channel";
   const media = normalizeMediaFacts(ctx.media);
   const hookMedia = projectMessageHookMediaFacts(media);
   const compact = (values: Array<string | undefined>) => {
@@ -184,6 +187,7 @@ function deriveInboundMessageHookContextBase(
     channelName: ctx.GroupChannel,
     isGroup,
     groupId: isGroup ? conversationId : undefined,
+    groupSubject: readNonBlankString(ctx.GroupSubject),
     topicName: ctx.TopicName,
     ...(hasLocation
       ? {
@@ -484,6 +488,8 @@ export function toPluginMessageReceivedEvent(
   const event: PluginHookMessageReceivedEvent = {
     ...facts,
     from: canonical.from,
+    isGroup: canonical.isGroup === true,
+    ...(canonical.groupId ? { groupId: canonical.groupId } : {}),
     metadata: {
       ...facts.metadata,
       threadId: canonical.threadId,
@@ -491,6 +497,9 @@ export function toPluginMessageReceivedEvent(
       senderId: canonical.senderId,
       senderName: canonical.senderName,
       senderUsername: canonical.senderUsername,
+      groupId: canonical.groupId,
+      isGroup: canonical.isGroup === true,
+      ...(canonical.groupSubject ? { groupSubject: canonical.groupSubject } : {}),
     },
   };
   assignTraceFields(event, canonical.trace);

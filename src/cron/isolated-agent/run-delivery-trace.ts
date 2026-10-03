@@ -7,6 +7,7 @@ import type {
   SourceDeliveryPlan,
   SourceDeliveryVisibleDelivery,
 } from "../../infra/outbound/source-delivery-plan.js";
+import { pryvaGroupSessionKeepsFinalPrivate } from "../../pryva/group-session.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import { resolveCronDeliveryPlan, type CronDeliveryPlan } from "../delivery-plan.js";
 import { hasExplicitCronDeliveryTarget } from "../delivery-target-validation.js";
@@ -235,13 +236,51 @@ export async function createCronToolsAllowPreflightDiagnostics(params: {
   }
 }
 
+/** Owner message_tool keeps a Pryva group final private: message-tool-only with
+ *  directFallback off. deliveryRequested stays false because the plan mode is none. */
+function pryvaGroupSourceDelivery(): SourceDeliveryPlan {
+  return {
+    owner: "message_tool",
+    reason: "cron_none",
+    target: {},
+    normalFinal: "private",
+    sourceReplyDeliveryMode: "message_tool_only",
+    messageTool: {
+      enabled: true,
+      force: false,
+      requireExplicitTarget: false,
+      requireExplicitTargetEvidence: false,
+    },
+    fallback: {
+      directDelivery: false,
+      skipWhenMessageToolSentToTarget: false,
+    },
+  };
+}
+
 /** Resolves the delivery plan and concrete target for one isolated cron run. */
 export async function resolveCronDeliveryContext(params: {
   cfg: OpenClawConfig;
   job: CronStoredJob;
   agentId: string;
 }) {
-  const deliveryPlan = resolveCronDeliveryPlan(params.job);
+  const planned = resolveCronDeliveryPlan(params.job);
+  const groupPrivate =
+    planned.mode !== "webhook" &&
+    pryvaGroupSessionKeepsFinalPrivate(params.cfg, resolveCronDeliverySessionKey(params.job));
+  // Drop announce targets before the none short-circuit so a group wake never
+  // reaches the last-channel fallback. The message tool remains the only post path.
+  const deliveryPlan: CronDeliveryPlan = groupPrivate
+    ? {
+        ...planned,
+        mode: "none",
+        requested: false,
+        channel: undefined,
+        to: undefined,
+        threadId: undefined,
+        accountId: undefined,
+      }
+    : planned;
   const {
     buildDeliveryFormatPrompt,
     resolveDeliveryTarget,
@@ -274,7 +313,9 @@ export async function resolveCronDeliveryContext(params: {
           sessionKey: resolveCronDeliverySessionKey(params.job),
         });
   const deliveryRequested = deliveryPlan.mode !== "none" && deliveryPlan.requested;
-  const sourceDelivery = resolveCronSourceDeliveryPlan({ deliveryPlan, resolvedDelivery });
+  const sourceDelivery = groupPrivate
+    ? pryvaGroupSourceDelivery()
+    : resolveCronSourceDeliveryPlan({ deliveryPlan, resolvedDelivery });
   const replyRouted = deliveryRequested && resolvedDelivery.ok;
   const payload = params.job.payload.kind === "agentTurn" ? params.job.payload : undefined;
   // Account-scoped scheduled sends go through the owner's account, as the message tool does.

@@ -67,6 +67,33 @@ describe("resolveCronDeliveryContext — Pryva silent self-turn is structurally 
     expect(resolveDeliveryTargetMock).toHaveBeenCalledOnce();
   });
 
+  it("does not announce a Pryva group session even when the job says announce", async () => {
+    resolveDeliveryTargetMock.mockClear();
+    const cfg = {
+      pryva: {
+        pipeline: { enabled: true },
+        backendUrl: "http://127.0.0.1:9",
+        internalToken: "test-token",
+      },
+    } as OpenClawConfig;
+
+    const result = await resolveCronDeliveryContext({
+      cfg,
+      job: {
+        sessionTarget: "session:agent:main:telegram:group:-100123",
+        payload: { kind: "agentTurn" },
+        delivery: { mode: "announce" },
+      } as unknown as CronJob,
+      agentId: "agent-x",
+    });
+
+    expect(result.deliveryRequested).toBe(false);
+    expect(result.deliveryPlan.mode).toBe("none");
+    expect(result.sourceDelivery.sourceReplyDeliveryMode).toBe("message_tool_only");
+    expect(result.sourceDelivery.fallback.directDelivery).toBe(false);
+    expect(resolveDeliveryTargetMock).not.toHaveBeenCalled();
+  });
+
   it("honors an explicit target even under mode none (unchanged cron semantics)", async () => {
     resolveDeliveryTargetMock.mockClear();
     resolveDeliveryTargetMock.mockResolvedValueOnce({

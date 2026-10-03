@@ -30,6 +30,14 @@ function expectPolicyFields(
   }
 }
 
+const pryvaGroupConfig = {
+  pryva: {
+    pipeline: { enabled: true },
+    backendUrl: "http://127.0.0.1:9",
+    internalToken: "test-token",
+  },
+} as OpenClawConfig;
+
 describe("resolveSourceReplyDeliveryMode", () => {
   it("keeps progress refresh replies, hooks and typing silent without changing session reply mode", () => {
     const policy = resolveSourceReplyVisibilityPolicy({
@@ -362,6 +370,36 @@ describe("resolveSourceReplyVisibilityPolicy", () => {
         deliverySuppressionReason: "sourceReplyDeliveryMode: message_tool_only",
       },
     );
+  });
+
+  it("keeps Pryva group finals private unless the turn is an explicit command", () => {
+    expect(
+      resolveSourceReplyDeliveryMode({
+        cfg: pryvaGroupConfig,
+        ctx: { ChatType: "group" },
+        requested: "automatic",
+        messageToolAvailable: false,
+      }),
+    ).toBe("message_tool_only");
+    expect(
+      resolveSourceReplyDeliveryMode({
+        cfg: pryvaGroupConfig,
+        ctx: { ChatType: "channel" },
+      }),
+    ).toBe("message_tool_only");
+    expect(
+      resolveSourceReplyDeliveryMode({
+        cfg: pryvaGroupConfig,
+        ctx: { ChatType: "direct" },
+        requested: "automatic",
+      }),
+    ).toBe("automatic");
+    expect(
+      resolveSourceReplyDeliveryMode({
+        cfg: pryvaGroupConfig,
+        ctx: { ChatType: "group", CommandSource: "native" },
+      }),
+    ).toBe("automatic");
   });
 
   it("keeps native and authorized text command replies visible in groups", () => {

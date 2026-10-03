@@ -30,6 +30,8 @@ import type {
   PluginHookGatewayStopEvent,
 } from "./hook-gateway.types.js";
 import type {
+  PluginHookGroupMessageObservedContext,
+  PluginHookGroupMessageObservedEvent,
   PluginHookInboundClaimContext,
   PluginHookInboundClaimEvent,
   PluginHookMessageContext,
@@ -76,6 +78,8 @@ export type {
   PluginHeartbeatPromptContributionResult,
 } from "./host-hook-turn-types.js";
 export type {
+  PluginHookGroupMessageObservedContext,
+  PluginHookGroupMessageObservedEvent,
   PluginHookInboundClaimContext,
   PluginHookInboundClaimEvent,
   PluginHookInboundMessageMetadata,
@@ -112,6 +116,7 @@ const PLUGIN_HOOK_NAMES = [
   "inbound_claim",
   "channel_pairing_requested",
   "message_received",
+  "group_message_observed",
   "message_sending",
   "reply_payload_sending",
   "message_sent",
@@ -903,6 +908,10 @@ export type PluginHookHandlerMap = {
     PluginHookReplyPayloadSendingResult
   >;
   message_received: AsyncPluginHook<PluginHookMessageReceivedEvent, PluginHookMessageContext>;
+  group_message_observed: AsyncPluginHook<
+    PluginHookGroupMessageObservedEvent,
+    PluginHookGroupMessageObservedContext
+  >;
   message_sending: AsyncPluginHook<
     PluginHookMessageSendingEvent,
     PluginHookMessageContext,

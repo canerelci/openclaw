@@ -83,6 +83,22 @@ describe("scheduleSelfWake — silent self-turns", () => {
     expect(scheduled[0]?.deliveryMode).toBe("announce");
   });
 
+  it("keeps a group-session wake private and undelivered", async () => {
+    const { pipeline, scheduled } = createStubPipeline();
+
+    await scheduleSelfWake(pipeline, {
+      sessionKey: "agent:main:whatsapp:group:123@g.us",
+      thought: "they are talking about the launch",
+      source: "inner_voice",
+      reason: "group_listener",
+      tag: "pryva-inner-voice",
+    });
+
+    expect(scheduled[0]?.deliveryMode).toBe("none");
+    expect(scheduled[0]?.message).toContain("final plain-text reply stays private");
+    expect(scheduled[0]?.message).toContain("message tool");
+  });
+
   it("changes nothing else about the scheduled turn — the thought still runs as a real turn", async () => {
     const { pipeline, scheduled } = createStubPipeline();
 
@@ -199,6 +215,72 @@ describe("publishSelfTurn — threads silent through to the scheduler", () => {
       });
       expect(scheduled[0]?.deliveryMode).toBe("announce");
     });
+  });
+
+  it("keeps a silent group_listener wake undelivered and on the backend flow", async () => {
+    const g = globalThis as Record<string, unknown>;
+    const previous = g[SELF_TURN_KEY];
+    delete g[SELF_TURN_KEY];
+    try {
+      const { pipeline, scheduled, attachExternalFlowBySession, setSourceHintBySession } =
+        createStubPipeline();
+      publishSelfTurn(pipeline);
+      const fn = g[SELF_TURN_KEY] as (req: Record<string, unknown>) => Promise<boolean>;
+
+      await fn({
+        sessionKey: "agent:main:whatsapp:group:123@g.us",
+        thought: "the batch matters",
+        source: "group_listener",
+        parentFlowId: "fl-listener",
+        silent: true,
+      });
+
+      expect(scheduled[0]?.deliveryMode).toBe("none");
+      expect(attachExternalFlowBySession).toHaveBeenCalledWith(
+        "agent:main:whatsapp:group:123@g.us",
+        "fl-listener",
+        "group_listener",
+        "fl-listener",
+      );
+      expect(setSourceHintBySession).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) {
+        delete g[SELF_TURN_KEY];
+      } else {
+        g[SELF_TURN_KEY] = previous;
+      }
+    }
+  });
+
+  it("lets a group_gate question on the owner session announce, as a child flow", async () => {
+    const g = globalThis as Record<string, unknown>;
+    const previous = g[SELF_TURN_KEY];
+    delete g[SELF_TURN_KEY];
+    try {
+      const { pipeline, scheduled, attachExternalFlowBySession, setSourceHintBySession } =
+        createStubPipeline();
+      publishSelfTurn(pipeline);
+      const fn = g[SELF_TURN_KEY] as (req: Record<string, unknown>) => Promise<boolean>;
+
+      await fn({
+        sessionKey: "agent:main:main",
+        thought: "ask the owner about the held post",
+        source: "group_gate",
+        parentFlowId: "fl-posting",
+        mustSpeak: true,
+      });
+
+      expect(scheduled[0]?.deliveryMode).toBe("announce");
+      expect(scheduled[0]?.message).toContain("MUST tell them now");
+      expect(setSourceHintBySession).toHaveBeenCalled();
+      expect(attachExternalFlowBySession).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) {
+        delete g[SELF_TURN_KEY];
+      } else {
+        g[SELF_TURN_KEY] = previous;
+      }
+    }
   });
 
   it("routes scheduled_todo with parentFlowId through the resume path (attachExternalFlowBySession)", async () => {

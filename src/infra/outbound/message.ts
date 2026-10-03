@@ -19,6 +19,7 @@ import { createLazyRuntimeModule } from "../../shared/lazy-runtime.js";
 import { GATEWAY_CLIENT_NAMES } from "../../utils/message-channel.js";
 import { formatErrorMessage } from "../errors.js";
 import { resolveMessageChannelSelection } from "./channel-selection.js";
+import { messageSendingHookCancelReason } from "./deliver-types.js";
 import type { DeliverOutboundPayloadsParams } from "./deliver-contracts.js";
 import {
   assertOutboundHandoffCurrent,
@@ -411,6 +412,10 @@ export async function sendMessage(params: MessageSendParams): Promise<MessageSen
       params.conversationDeliveryTarget,
     );
     const sendMayHaveReachedRecipient = durableMessageBatchMayHaveReachedRecipient(send);
+    const hookRefusal = messageSendingHookCancelReason(send);
+    if (hookRefusal) {
+      throw new Error(hookRefusal);
+    }
     const handoffRejection =
       send.status === "failed" && !sendMayHaveReachedRecipient
         ? (send.payloadOutcomes

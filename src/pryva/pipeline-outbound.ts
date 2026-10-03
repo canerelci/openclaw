@@ -23,6 +23,8 @@ import { pryvaFetch } from "./backend.js";
 import type { PipelineInboundContext } from "./context.js";
 import { neutralizeErrorReply } from "./error-reply.js";
 import { UNBOUND_FLOW_ID } from "./flow-registry.js";
+import { rememberedGroupName } from "./group-listen.js";
+import { classifyGroupOutboundTarget, decideGroupOutboundGate } from "./group-outbound-gate.js";
 import { logFlowStep, type PryvaPipeline } from "./pipeline.js";
 import { baseStripOutbound, guardRoleBreak } from "./sanitize.js";
 import {
@@ -118,6 +120,27 @@ export async function onMessageSending(
       ? (matched as { flowId?: string }).flowId
       : undefined;
   const flowId = binding?.flowId ?? matchedFlowId ?? UNBOUND_FLOW_ID;
+
+  // Group sends ask the backend before Cortex/Mouth can rewrite the text.
+  // The header is the posting turn's flow, the same id Cortex uses. No header
+  // when nothing is bound — fl-unbound must not be sent. Direct messages are not gated.
+  const groupTarget = classifyGroupOutboundTarget(channel, to);
+  if (groupTarget) {
+    const meta = event.metadata;
+    const named = [meta?.groupName, meta?.group_name, meta?.groupSubject].find(
+      (value): value is string => typeof value === "string" && value.trim().length > 0,
+    );
+    const decision = await decideGroupOutboundGate(pipeline, {
+      ...groupTarget,
+      text: content,
+      groupName: named?.trim() || rememberedGroupName(groupTarget.channel, groupTarget.groupId),
+      flowId,
+    });
+    if (!decision.allow) {
+      return { cancel: true, cancelReason: decision.reason };
+    }
+  }
+
   if (!binding && !matchedFlowId) {
     pipeline.log.warn(
       `outbound unbound: no flow for run=${runId ?? "?"} session=${sessionKey ?? "?"} ` +

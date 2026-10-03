@@ -20,6 +20,7 @@ import {
 } from "../../channels/turn/partial-delivery-error.js";
 import { createOutboundSendDeps } from "../../cli/deps.js";
 import { resolveOutboundChannelPlugin } from "../../infra/outbound/channel-resolution.js";
+import { messageSendingHookCancelReason } from "../../infra/outbound/deliver-types.js";
 import { resolveImplicitMessageActionTarget } from "../../infra/outbound/message-action-normalization.js";
 import {
   hydrateAttachmentParamsForAction,
@@ -792,6 +793,10 @@ export const sendHandlers: GatewayRequestHandlers = {
               receipt: send.receipt,
               visibleReplySent: true,
             });
+          }
+          const hookRefusal = messageSendingHookCancelReason(send);
+          if (hookRefusal) {
+            throw new Error(hookRefusal);
           }
           const results = send.status === "sent" ? send.results : [];
 

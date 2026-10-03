@@ -22,6 +22,7 @@ import type {
 import { pryvaFetch, pryvaFetchQuotaAware, type PryvaQuotaRefusal } from "./backend.js";
 import type { PipelineInboundContext } from "./context.js";
 import { generateFlowId, normalizeTrigger, type FlowSource } from "./flow-registry.js";
+import { rememberGroupName } from "./group-listen.js";
 import { cancelInnerVoice, parseInnerVoiceDirective, scheduleInnerVoice } from "./inner-voice.js";
 import { logFlowStep, sleep, type PryvaPipeline } from "./pipeline.js";
 import { isOutOfScopePlan, scopePlanDirective } from "./scope.js";
@@ -339,6 +340,14 @@ export async function onMessageReceived(
   const channel = ctx?.channelId || "unknown";
   const from = event?.from || "";
   const content = event?.content || "";
+  const groupSubject = event.metadata?.groupSubject;
+  if (event.isGroup === true && event.groupId) {
+    rememberGroupName(
+      channel,
+      event.groupId,
+      typeof groupSubject === "string" ? groupSubject : undefined,
+    );
+  }
   if (!from && !content) {
     return;
   }

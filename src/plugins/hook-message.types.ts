@@ -150,6 +150,13 @@ type PluginHookInboundMessageFacts = {
   replyToIsQuote?: boolean;
   sessionKey?: string;
   runId?: string;
+  /**
+   * True when the inbound conversation is a group or channel. Copied onto the
+   * plugin event so message logs can ignore group rows. Absent on older emitters.
+   */
+  isGroup?: boolean;
+  /** Group or channel id when `isGroup` is true. */
+  groupId?: string;
   trace?: DiagnosticTraceContext;
   traceId?: string;
   spanId?: string;
@@ -168,6 +175,26 @@ type PluginHookInboundMessageFacts = {
 export type PluginHookMessageReceivedEvent = PluginHookInboundMessageFacts & {
   from: string;
 };
+
+/**
+ * An allowed-group message that mention gating stored and did not turn into an
+ * agent run. Observers must not mint a flow or start a turn.
+ */
+export type PluginHookGroupMessageObservedEvent = {
+  channel: string;
+  groupId: string;
+  groupName?: string;
+  sessionKey: string;
+  messageId?: string;
+  senderId?: string;
+  senderName?: string;
+  text: string;
+  hasMedia: boolean;
+  /** Unix seconds or milliseconds. The listener normalizes to ISO. */
+  timestamp?: number;
+};
+
+export type PluginHookGroupMessageObservedContext = Record<string, never>;
 
 export type PluginHookMessageSendingEvent = {
   to: string;

@@ -618,6 +618,8 @@ describe("message hook mappers", () => {
       senderId: "sender-1",
       sessionKey: "session-1",
       runId: "run-1",
+      isGroup: true,
+      groupId: "demo-chat:chat:456",
       media: [
         {
           path: "/tmp/audio.ogg",
