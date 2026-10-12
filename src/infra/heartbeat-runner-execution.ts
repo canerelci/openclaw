@@ -195,6 +195,7 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
       },
     });
     if (!decision.run) {
+      log.info("heartbeat: skipped by preflight", { reason: decision.reason });
       return skippedHeartbeatStage(decision.reason, startedAt);
     }
   }
