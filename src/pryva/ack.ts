@@ -81,11 +81,11 @@ const QUESTION_RE =
 let lastAck: string | null = null;
 
 function pickAck(pool: readonly string[]): string {
-  let choice = pool[Math.floor(Math.random() * pool.length)];
+  let choice = pool[Math.floor(Math.random() * pool.length)] ?? "";
   // One deterministic step-over is enough to break an immediate repeat without
   // biasing the distribution toward any particular neighbour.
   if (choice === lastAck && pool.length > 1) {
-    choice = pool[(pool.indexOf(choice) + 1) % pool.length];
+    choice = pool[(pool.indexOf(choice) + 1) % pool.length] ?? choice;
   }
   lastAck = choice;
   return choice;

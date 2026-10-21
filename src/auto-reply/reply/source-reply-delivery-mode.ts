@@ -72,7 +72,7 @@ export function resolveSourceReplyDeliveryMode(params: {
   // Pryva groups keep the final private even when a caller asked for automatic
   // delivery or the message tool looks unavailable. Operator slash commands still reply.
   if ((chatType === "group" || chatType === "channel") && resolvePryvaConfig(params.cfg) != null) {
-    if (isExplicitSourceReplyCommand(params.ctx, params.cfg)) {
+    if (isExplicitCommandTurnContext(params.ctx, params.cfg)) {
       return "automatic";
     }
     return "message_tool_only";

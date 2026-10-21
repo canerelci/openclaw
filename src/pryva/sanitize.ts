@@ -24,8 +24,8 @@ export function stripTrailingFillerQuestion(text: string): string {
   if (!match) {
     return text;
   }
-  const body = match[1].trim();
-  const trailing = match[2].trim();
+  const body = (match[1] ?? "").trim();
+  const trailing = (match[2] ?? "").trim();
   if (body.length >= 10 && FILLER_QUESTION_RE.test(trailing)) {
     return body;
   }

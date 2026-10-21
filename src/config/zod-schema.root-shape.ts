@@ -609,7 +609,7 @@ export const OpenClawSchemaShape = {
   pryva: z
     .object({
       backendUrl: z.string().optional(),
-      internalToken: SecretInputSchema.optional().register(sensitive),
+      internalToken: z.string().optional().register(sensitive),
       pipeline: z
         .object({
           enabled: z.boolean().optional(),

@@ -9,14 +9,16 @@
  */
 
 import type {
+  PluginHookMessageContext,
+  PluginHookMessageSentEvent,
+} from "../plugins/hook-message.types.js";
+import type {
   PluginHookAfterCompactionEvent,
   PluginHookAfterToolCallEvent,
   PluginHookAgentContext,
   PluginHookAgentEndEvent,
   PluginHookLlmInputEvent,
   PluginHookLlmOutputEvent,
-  PluginHookMessageContext,
-  PluginHookMessageSentEvent,
   PluginHookModelCallEndedEvent,
 } from "../plugins/types.js";
 import { pryvaFetch } from "./backend.js";

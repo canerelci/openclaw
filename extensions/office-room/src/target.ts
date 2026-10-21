@@ -15,7 +15,8 @@ export function parseOfficeRoomTarget(raw: string): OfficeRoomTarget {
     throw new Error("Office Room target is required");
   }
   const stripped = value.replace(/^(office-room|room):(?=dm:)/i, "");
-  const [prefix, ...rest] = stripped.split(":");
+  const [prefixRaw, ...rest] = stripped.split(":");
+  const prefix = prefixRaw ?? "";
   const body = rest.join(":").trim();
   if (/^(room|office-room)$/i.test(stripped)) {
     return { chatType: "group", kind: "room", id: "room" };

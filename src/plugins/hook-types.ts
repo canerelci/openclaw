@@ -366,7 +366,7 @@ type PluginHookBeforeResetEvent = {
   reason?: string;
 };
 
-type PluginHookAfterCompactionEvent = {
+export type PluginHookAfterCompactionEvent = {
   messageCount: number;
   tokenCount?: number;
   compactedCount: number;
@@ -651,7 +651,7 @@ export type PluginHookSessionEndEvent = {
   nextSessionKey?: string;
 };
 
-type PluginHookSubagentContext = {
+export type PluginHookSubagentContext = {
   runId?: string;
   childSessionKey?: string;
   requesterSessionKey?: string;
@@ -707,7 +707,7 @@ export type PluginHookSubagentDeliveryTargetResult = {
   };
 };
 
-type PluginHookSubagentSpawnedEvent = PluginHookSubagentSpawnBase & {
+export type PluginHookSubagentSpawnedEvent = PluginHookSubagentSpawnBase & {
   runId: string;
   /** Fully resolved provider/model ref applied to the spawned child session. */
   resolvedModel?: string;
@@ -731,7 +731,7 @@ type PluginHookSubagentProgressEvent =
       requester?: PluginHookSubagentRequester;
     };
 
-type PluginHookSubagentEndedEvent = {
+export type PluginHookSubagentEndedEvent = {
   targetSessionKey: string;
   targetKind: PluginHookSubagentTargetKind;
   reason: string;
@@ -834,7 +834,7 @@ export type PluginHookBeforeAgentRunEvent = {
 };
 
 /** Result type for before_agent_run. Returns pass/block or void (= pass). */
-type PluginHookBeforeAgentRunResult = InputGateDecision | void;
+export type PluginHookBeforeAgentRunResult = InputGateDecision | void;
 
 export type PluginHookResolveExecEnvEvent = {
   sessionKey?: string;

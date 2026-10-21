@@ -8,15 +8,13 @@
  * logging stays in those extensions too.
  */
 
+import type { PluginHookMessageContext } from "../plugins/hook-message.types.js";
 import type {
   PluginHookAgentContext,
   PluginHookBeforeAgentRunEvent,
   PluginHookBeforeAgentRunResult,
-  PluginHookBeforeAgentStartEvent,
-  PluginHookBeforeAgentStartResult,
   PluginHookBeforePromptBuildEvent,
   PluginHookBeforePromptBuildResult,
-  PluginHookMessageContext,
   PluginHookMessageReceivedEvent,
 } from "../plugins/types.js";
 import { pryvaFetch, pryvaFetchQuotaAware, type PryvaQuotaRefusal } from "./backend.js";
@@ -542,19 +540,22 @@ export async function onMessageReceived(
   }
 }
 
+/** What both replacement phases carry of the retired before_agent_start event. */
+type BeforeAgentStartPhaseEvent = { prompt: string; runId?: string };
+
 /**
- * The second mint point (parent §D1.2). Fires once per agent run, at run start,
- * with the run's full structural ctx (runId + sessionKey + trigger). Binds every
- * non-message-triggered run to a flow, and consumes external-flow attachments
- * (D5 NCW continuation) / source hints (D6 followup drain). Idempotent across
- * the multiple times before_agent_start can fire per run (model-resolve +
- * prompt-build phases) via the "already bound → no-op" guard.
+ * The second mint point (parent §D1.2). Fires at run start with the run's full
+ * structural ctx (runId + sessionKey + trigger). Binds every non-message-triggered
+ * run to a flow, and consumes external-flow attachments (D5 NCW continuation) /
+ * source hints (D6 followup drain). Idempotent across the phases that replaced the
+ * retired before_agent_start hook (model-resolve + prompt-build) via the
+ * "already bound → no-op" guard.
  */
 export async function onBeforeAgentStart(
   pipeline: PryvaPipeline,
-  event: PluginHookBeforeAgentStartEvent,
+  event: BeforeAgentStartPhaseEvent,
   ctx: PluginHookAgentContext,
-): Promise<PluginHookBeforeAgentStartResult | void> {
+): Promise<void> {
   const runId = ctx?.runId ?? event?.runId;
   // Without a runId we cannot bind structurally, and minting an unattributable
   // flow would only hide the gap — leave it; the run's telemetry resolves via

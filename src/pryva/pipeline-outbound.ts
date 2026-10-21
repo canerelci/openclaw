@@ -17,7 +17,7 @@ import type {
   PluginHookMessageContext,
   PluginHookMessageSendingEvent,
   PluginHookMessageSendingResult,
-} from "../plugins/types.js";
+} from "../plugins/hook-message.types.js";
 import { isFastAck } from "./ack.js";
 import { pryvaFetch } from "./backend.js";
 import type { PipelineInboundContext } from "./context.js";

@@ -73,19 +73,23 @@ export function registerPryvaPipelineHooks(api: OpenClawPluginApi, cfg: OpenClaw
   // for the same inbound message (spool retry). Complements the message_received
   // guard (which dedups flow-mint + Ear); scoped to real channel messages only.
   api.on("before_agent_run", (event, ctx) => onBeforeAgentRun(pipeline, event, ctx));
-  // before_agent_start is the second mint point (D1): it binds every
-  // non-message-triggered run (heartbeat/cron/system/followup) to a flow,
-  // consumes external-flow attachments (D5) and source hints (D6), and
-  // race-safe-bridges message-triggered runs. Idempotent across its multiple
-  // fires per run. (Legacy hook, but it is the single earliest per-run point
-  // with the full structural ctx — runId + sessionKey + trigger.)
-  api.on("before_agent_start", (event, ctx) => onBeforeAgentStart(pipeline, event, ctx));
+  // The second mint point (D1): binds every non-message-triggered run
+  // (heartbeat/cron/system/followup) to a flow, consumes external-flow attachments
+  // (D5) and source hints (D6), and race-safe-bridges message-triggered runs.
+  // before_agent_start was retired upstream; both of its phases re-run this
+  // idempotent handler (already bound → no-op), so register it on each.
+  api.on("before_model_resolve", (event, ctx) => onBeforeAgentStart(pipeline, event, ctx));
   // before_prompt_build priority sandwich (higher runs first; prependContext is
   // concatenated left→right in that order). Flavor identity/brand/TODAY should
   // sit ABOVE this (prio ≥ 20); conversation history BELOW (prio ≤ 10). That
   // yields: identity → [TODAY] → [CURRENT TIME] + Ear plan → conversation.
   // Native registers after external plugins, so equal priority would append us
   // AFTER history — never share prio 10 with the flavor history hook.
+  // Mint at the sandwich entry: above our own build handler (15) so the Ear plan
+  // sees the flow binding this run already resolved to.
+  api.on("before_prompt_build", (event, ctx) => onBeforeAgentStart(pipeline, event, ctx), {
+    priority: 16,
+  });
   api.on("before_prompt_build", (event, ctx) => onBeforePromptBuild(pipeline, event, ctx), {
     priority: 15,
   });
