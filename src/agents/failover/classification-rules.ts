@@ -270,6 +270,11 @@ export function classifyFailoverClassificationFromHttpStatus(
     return toReasonClassification("overloaded");
   }
   if (status === 499 || (status >= 500 && status < 600)) {
+    // A gateway 503 for an empty credit pool is billing, not a blip. Leaving it
+    // as server_error burns the same-model retry budget before any fallback.
+    if (messageReason === "billing") {
+      return toReasonClassification("billing");
+    }
     // Gateways can wrap a deterministic request rejection in a 5xx response.
     if (
       messageReason === "overloaded" ||

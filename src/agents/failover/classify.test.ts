@@ -250,6 +250,15 @@ describe("HTTP 5xx status classification", () => {
     });
   });
 
+  it("classifies a gateway 503 for an empty credit pool as billing", () => {
+    expect(
+      classifyFailoverSignal({
+        status: 503,
+        message: '503: {"detail":"No healthy anthropic key available: anthropic is out of credit"}',
+      }),
+    ).toEqual({ kind: "reason", reason: "billing" });
+  });
+
   it.each([499, 504, 522, 524])("keeps gateway-timeout status %i as timeout", (status) => {
     expect(classifyFailoverSignal({ status, message: "upstream failure" })).toEqual({
       kind: "reason",

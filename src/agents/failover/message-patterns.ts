@@ -240,6 +240,7 @@ const ERROR_PATTERNS = {
     "available balance",
     "out of budget",
     "credit balance",
+    /\bout of credits?\b/i,
     "plans & billing",
     /insufficient[_ ]balance/i,
     // Fuzzy: "Insufficient MBT balance", "Insufficient token balance", etc.
