@@ -8,6 +8,8 @@
  * logging stays in those extensions too.
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import type { PluginHookMessageContext } from "../plugins/hook-message.types.js";
 import type {
   PluginHookAgentContext,
@@ -540,6 +542,68 @@ export async function onMessageReceived(
   }
 }
 
+const BRIDGE_FLOW_SOURCES = new Set<string>(["internal_chat", "inner_voice", "system"]);
+
+function bridgeFlowSource(value: unknown): FlowSource {
+  return typeof value === "string" && BRIDGE_FLOW_SOURCES.has(value)
+    ? (value as FlowSource)
+    : "internal_chat";
+}
+
+function sessionKeysMatch(written: string, runKey: string): boolean {
+  if (!written || !runKey) return false;
+  if (written === runKey) return true;
+  // The bridge names the chat key; the gateway run key is agent:<id>:<chat key>.
+  return runKey.endsWith(`:${written}`) || written.endsWith(`:${runKey}`);
+}
+
+/** Flow id the agent bridge wrote. The gateway process does not see the CLI env. */
+function takeBridgeFlowFile(
+  sessionKey: string | undefined,
+): { flowId: string; source: FlowSource } | undefined {
+  if (!sessionKey) return undefined;
+  const dir = process.env.PRYVA_AGENT_FLOW_DIR || "/tmp/pryva-agent-flow";
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return undefined;
+  }
+  const now = Date.now();
+  let best: { flowId: string; source: FlowSource; mtime: number; file: string } | undefined;
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    const file = path.join(dir, name);
+    try {
+      const stat = fs.statSync(file);
+      if (now - stat.mtimeMs > 15 * 60 * 1000) {
+        fs.unlinkSync(file);
+        continue;
+      }
+      const body = JSON.parse(fs.readFileSync(file, "utf8")) as {
+        flowId?: unknown;
+        source?: unknown;
+        sessionKey?: unknown;
+      };
+      const flowId = typeof body.flowId === "string" ? body.flowId.trim() : "";
+      const written = typeof body.sessionKey === "string" ? body.sessionKey : "";
+      if (!flowId || !sessionKeysMatch(written, sessionKey)) continue;
+      if (!best || stat.mtimeMs >= best.mtime) {
+        best = { flowId, source: bridgeFlowSource(body.source), mtime: stat.mtimeMs, file };
+      }
+    } catch {
+      continue;
+    }
+  }
+  if (!best) return undefined;
+  try {
+    fs.unlinkSync(best.file);
+  } catch {
+    // A missing file on the next read still leaves this run bound.
+  }
+  return { flowId: best.flowId, source: best.source };
+}
+
 /** What both replacement phases carry of the retired before_agent_start event. */
 type BeforeAgentStartPhaseEvent = { prompt: string; runId?: string };
 
@@ -588,6 +652,15 @@ export async function onBeforeAgentStart(
     delete process.env.PRYVA_FLOW_SOURCE;
     pipeline.registry.bindFlow(envFlowId, envSource, { runId, sessionKey, sessionId });
     logFlowResume(pipeline, envFlowId, envSource, { runId, sessionKey });
+    return;
+  }
+
+  // Gateway web chat: the bridge writes the caller's flow id. This process
+  // does not inherit the CLI's PRYVA_FLOW_ID.
+  const bridged = takeBridgeFlowFile(sessionKey);
+  if (bridged) {
+    pipeline.registry.bindFlow(bridged.flowId, bridged.source, { runId, sessionKey, sessionId });
+    logFlowResume(pipeline, bridged.flowId, bridged.source, { runId, sessionKey });
     return;
   }
 
