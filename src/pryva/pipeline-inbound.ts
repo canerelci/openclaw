@@ -655,19 +655,12 @@ export async function onBeforeAgentStart(
     return;
   }
 
-  // Gateway web chat: the bridge writes the caller's flow id. This process
-  // does not inherit the CLI's PRYVA_FLOW_ID.
-  const bridged = takeBridgeFlowFile(sessionKey);
-  if (bridged) {
-    pipeline.registry.bindFlow(bridged.flowId, bridged.source, { runId, sessionKey, sessionId });
-    logFlowResume(pipeline, bridged.flowId, bridged.source, { runId, sessionKey });
-    return;
-  }
-
   // 2. External flow attached (D5 NCW continuation): bind the EXISTING parent
   //    flow to this run and log a flow_resume — never a new flow (invariant I4).
   //    Runs started via gateway sessions.send/steer carrying pryvaFlowId attach
   //    it by SESSION (runId unknown at call time), so fall through to that map.
+  //    This wins over a leftover bridge file: a CLI that never reached the gateway
+  //    must not bind the next sessions.send to the old flow.
   const external =
     pipeline.registry.consumeExternalFlow(runId) ??
     pipeline.registry.consumeExternalFlowBySession(sessionKey);
@@ -685,6 +678,15 @@ export async function onBeforeAgentStart(
       sessionKey,
       parentFlowId: external.parentFlowId,
     });
+    return;
+  }
+
+  // Gateway web chat: the bridge writes the caller's flow id. This process
+  // does not inherit the CLI's PRYVA_FLOW_ID. Read it only when no explicit id was attached.
+  const bridged = takeBridgeFlowFile(sessionKey);
+  if (bridged) {
+    pipeline.registry.bindFlow(bridged.flowId, bridged.source, { runId, sessionKey, sessionId });
+    logFlowResume(pipeline, bridged.flowId, bridged.source, { runId, sessionKey });
     return;
   }
 

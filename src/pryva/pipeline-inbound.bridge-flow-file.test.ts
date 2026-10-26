@@ -60,4 +60,32 @@ describe("gateway web-chat flow file", () => {
     expect(stepFlow).toBe("fl-abc123def456");
     expect(fs.readdirSync(dir)).toEqual([]);
   });
+
+  it("keeps an explicit pryvaFlowId when a leftover bridge file is still on disk", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pryva-flow-"));
+    dirs.push(dir);
+    process.env.PRYVA_AGENT_FLOW_DIR = dir;
+    const file = path.join(dir, "admin-internal.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        flowId: "fl-leftover0001",
+        source: "internal_chat",
+        sessionKey: "admin-internal",
+      }),
+    );
+    const registry = new FlowRegistry();
+    registry.attachExternalFlowBySession(
+      "agent:main:admin-internal",
+      "fl-explicit0001",
+      "ncw_completion",
+    );
+    const pipeline = createStubPipeline(registry);
+    await onBeforeAgentStart(pipeline, { prompt: "" }, {
+      runId: "run-explicit-wins",
+      sessionKey: "agent:main:admin-internal",
+    } as never);
+    expect(registry.getFlowForRun("run-explicit-wins")?.flowId).toBe("fl-explicit0001");
+    expect(fs.existsSync(file)).toBe(true);
+  });
 });
