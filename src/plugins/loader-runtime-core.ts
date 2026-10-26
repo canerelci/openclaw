@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { registerPryvaPipelineHooks } from "../pryva/index.js";
 import { normalizeAgentToolResultMiddlewareRuntimeIds } from "./agent-tool-result-middleware.js";
 import { createUnavailableRuntime } from "./api-builder.js";
 import { resolvePluginCandidateInstallOwner } from "./candidate-install-owner.js";
@@ -19,7 +20,6 @@ import {
   warnWhenAllowlistIsOpen,
 } from "./loader-provenance.js";
 import { createPluginRecord, formatPluginFailureSummary } from "./loader-records.js";
-import { registerPryvaPipelineHooks } from "../pryva/index.js";
 import {
   loadRuntimePluginCandidate,
   prepareRuntimePluginConfig,
@@ -618,7 +618,9 @@ export function loadOpenClawPluginsCore(
     // Native Pryva pipeline — a first-party, config-gated plugin baked into the runtime
     // (not discovered as external code); registered through the same api.on(...) path as any
     // plugin so the global hook runner dispatches it natively.
-    if (context.shouldActivate && options.mode !== "validate") {
+    // The gateway loads with activation deferred and side effects on. shouldActivate
+    // skips that load, so the run never binds a flow.
+    if (context.runtimeSideEffects && options.mode !== "validate") {
       try {
         const pryvaRecord = createPluginRecord({
           id: "pryva-pipeline",
