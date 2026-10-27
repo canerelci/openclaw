@@ -216,4 +216,40 @@ describe("hook-runner-global", () => {
       await pending;
     }
   });
+
+  it("dispatches native pipeline hooks inside a generation that omitted them", async () => {
+    const pipelineHandler = vi.fn();
+    const root = createMockPluginRegistry([
+      {
+        hookName: "before_model_resolve",
+        pluginId: "pryva-pipeline",
+        handler: pipelineHandler,
+      },
+    ]);
+    const generation = createMockPluginRegistry([
+      {
+        hookName: "before_prompt_build",
+        pluginId: "pryva-smm",
+        handler: vi.fn(),
+      },
+    ]);
+    const mod = await importHookRunnerGlobalModule();
+    setActivePluginRegistry(root);
+    mod.initializeGlobalHookRunner(root);
+    const metadataSnapshot = createPluginMetadataSnapshotFixture();
+
+    await withPluginRuntimeGenerationScope(
+      { metadataSnapshot, pluginRegistry: generation },
+      async () => {
+        const runner = expectGlobalHookRunner(mod.getGlobalHookRunner());
+        expect(runner.hasHooks("before_model_resolve")).toBe(true);
+        await runner.runBeforeModelResolve(
+          { prompt: "ping" },
+          { runId: "run-1", sessionKey: "agent:main:diag" },
+        );
+      },
+    );
+
+    expect(pipelineHandler).toHaveBeenCalledOnce();
+  });
 });

@@ -120,10 +120,42 @@ function overlayHookRegistries(
   };
 }
 
+const NATIVE_PIPELINE_PLUGIN_ID = "pryva-pipeline";
+
+// A prepared generation lists the flavor plugins only. The native pipeline is
+// registered on the process root, so a gateway run would otherwise never dispatch
+// before_model_resolve or after_tool_call and its flow would stay unbound.
+function overlayNativePipelineHooks(
+  generation: TrustedPolicyHookRunnerRegistry,
+  root: TrustedPolicyHookRunnerRegistry | null,
+): TrustedPolicyHookRunnerRegistry {
+  if (!root || root === generation) {
+    return generation;
+  }
+  const present =
+    generation.plugins.some((plugin) => plugin.id === NATIVE_PIPELINE_PLUGIN_ID) ||
+    generation.typedHooks.some((hook) => hook.pluginId === NATIVE_PIPELINE_PLUGIN_ID);
+  if (present) {
+    return generation;
+  }
+  const typedHooks = root.typedHooks.filter((hook) => hook.pluginId === NATIVE_PIPELINE_PLUGIN_ID);
+  const hooks = root.hooks.filter((hook) => hook.pluginId === NATIVE_PIPELINE_PLUGIN_ID);
+  const plugins = root.plugins.filter((plugin) => plugin.id === NATIVE_PIPELINE_PLUGIN_ID);
+  if (typedHooks.length === 0 && hooks.length === 0 && plugins.length === 0) {
+    return generation;
+  }
+  return {
+    ...generation,
+    hooks: [...generation.hooks, ...hooks],
+    typedHooks: [...generation.typedHooks, ...typedHooks],
+    plugins: [...generation.plugins, ...plugins],
+  };
+}
+
 function resolveHookRegistry(state: HookRunnerGlobalState): TrustedPolicyHookRunnerRegistry | null {
   const generationRegistry = getPluginRuntimeGenerationRegistry();
   if (generationRegistry && !isPluginRegistryRetired(generationRegistry)) {
-    return generationRegistry;
+    return overlayNativePipelineHooks(generationRegistry, resolveRootHookRegistry(state));
   }
   const requestRegistry = getPluginRuntimeGatewayRequestScope()?.pluginRegistry ?? null;
   return overlayHookRegistries(
