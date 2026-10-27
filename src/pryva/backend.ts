@@ -50,7 +50,7 @@ export async function pryvaFetch(
       signal: controller.signal,
     });
     if (!response.ok) {
-      log.debug(`backend ${method} ${path} -> ${response.status}`);
+      log.warn(`backend ${method} ${path} -> ${response.status}`);
       return null;
     }
     const text = await response.text();
@@ -59,7 +59,7 @@ export async function pryvaFetch(
     }
     return JSON.parse(text) as unknown;
   } catch (err) {
-    log.debug(`backend ${method} ${path} failed: ${String(err)}`);
+    log.warn(`backend ${method} ${path} failed: ${String(err)}`);
     return null;
   } finally {
     clearTimeout(timeout);
